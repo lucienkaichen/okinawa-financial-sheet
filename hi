@@ -8,20 +8,14 @@
     <!-- 1. 引入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- 2. 引入 React 和 ReactDOM -->
+    <!-- 2. 引入 React 和 ReactDOM (核心引擎) -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
-    <!-- 2.5 相容性腳本 -->
-    <script>
-        window.react = window.React;
-        window['react-dom'] = window.ReactDOM;
-    </script>
-    
-    <!-- 3. 引入 Babel -->
+    <!-- 3. 引入 Babel (讓瀏覽器看得懂 JSX) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- 4. Firebase SDK -->
+    <!-- 4. Firebase SDK (雲端大腦) -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
@@ -34,13 +28,26 @@
         .animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
         .animate-fade-in-up { animation: fadeIn 0.5s ease-out forwards; }
         body { background-color: #f8fafc; -webkit-tap-highlight-color: transparent; }
-        
-        /* 修正：底部大幅墊高，防止被工具列遮擋 (60px + 安全距離) */
+        /* 底部大幅墊高 */
         .pb-safe-extra { padding-bottom: calc(env(safe-area-inset-bottom) + 60px); }
+        /* 載入中畫面 */
+        #loading { text-align: center; margin-top: 50px; color: #64748b; font-family: sans-serif; }
     </style>
 </head>
 <body>
-    <div id="root"></div>
+    <!-- 預設顯示載入中，React 啟動後會取代這裡 -->
+    <div id="root">
+        <div id="loading">
+            <p>正在載入沖繩之旅...🌊</p>
+            <p style="font-size: 12px; margin-top: 10px;">如果卡住太久，請重新整理頁面</p>
+        </div>
+    </div>
+
+    <!-- 關鍵：Shim 腳本放在這裡，確保在 React 載入後執行 -->
+    <script>
+        window.react = window.React;
+        window['react-dom'] = window.ReactDOM;
+    </script>
 
     <script type="text/babel">
         // ==========================================
@@ -56,9 +63,14 @@
             measurementId: "G-33EEBGS9F3"
         };
 
-        // 初始化 Firebase
+        // 安全初始化 Firebase
         if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
+            try {
+                firebase.initializeApp(firebaseConfig);
+            } catch (e) {
+                console.error("Firebase 初始化失敗:", e);
+                document.getElementById('root').innerHTML = `<div style="padding:20px;color:red">系統錯誤: ${e.message}</div>`;
+            }
         }
         const db = firebase.firestore();
         const auth = firebase.auth();
@@ -82,7 +94,6 @@
             RefreshCw: (p) => <IconBase {...p}><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></IconBase>,
             CheckCircle: (p) => <IconBase {...p}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></IconBase>,
             FileSpreadsheet: (p) => <IconBase {...p}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M8 17h2"/><path d="M14 13h2"/><path d="M14 17h2"/></IconBase>,
-            LayoutDashboard: (p) => <IconBase {...p}><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></IconBase>,
             HelpCircle: (p) => <IconBase {...p}><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></IconBase>,
             X: (p) => <IconBase {...p}><path d="M18 6 6 18"/><path d="M6 6 18 18"/></IconBase>,
             PieChart: (p) => <IconBase {...p}><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></IconBase>,
@@ -92,7 +103,7 @@
             Save: (p) => <IconBase {...p}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></IconBase>
         };
 
-        const { Plus, Trash2, Users, DollarSign, ArrowRight, Save, RefreshCw, CheckCircle, FileSpreadsheet, LayoutDashboard, HelpCircle, X, PieChart, Edit2, Settings, Globe, ChevronDown, ChevronUp } = Icons;
+        const { Plus, Trash2, Users, LayoutDashboard, Edit2, Settings, Globe, RefreshCw, CheckCircle, FileSpreadsheet, HelpCircle, X, PieChart, ArrowRight, ChevronDown, ChevronUp, Save } = Icons;
 
         const INITIAL_USERS = [
             { id: '1', name: '陳浚愷' },
@@ -107,7 +118,7 @@
             const [users, setUsers] = useState(INITIAL_USERS);
             const [expenses, setExpenses] = useState([]); 
             const [activeTab, setActiveTab] = useState('dashboard');
-            const [currentUser, setCurrentUser] = useState(null); // 追蹤登入狀態
+            const [currentUser, setCurrentUser] = useState(null);
             const [authError, setAuthError] = useState(null);
             
             const [exchangeRate, setExchangeRate] = useState(0.22);
@@ -138,14 +149,20 @@
 
             // --- 登入與權限 ---
             useEffect(() => {
-                auth.signInAnonymously().catch((error) => {
-                    console.error("匿名登入失敗:", error);
-                    if (error.code === 'auth/configuration-not-found' || error.code === 'auth/admin-restricted-operation') {
-                        setAuthError("請前往 Firebase Console -> Authentication -> Sign-in method，開啟「匿名 (Anonymous)」登入功能。");
-                    } else {
-                        setAuthError("登入失敗: " + error.message);
+                const initAuth = async () => {
+                    try {
+                        // 嘗試匿名登入
+                        await auth.signInAnonymously();
+                    } catch (error) {
+                        console.error("匿名登入失敗:", error);
+                        if (error.code === 'auth/configuration-not-found' || error.code === 'auth/admin-restricted-operation') {
+                            setAuthError("請前往 Firebase Console -> Authentication -> Sign-in method，開啟「匿名 (Anonymous)」登入功能。");
+                        } else {
+                            setAuthError("登入失敗: " + error.message);
+                        }
                     }
-                });
+                };
+                initAuth();
 
                 const unregisterAuthObserver = auth.onAuthStateChanged((user) => {
                     setCurrentUser(user);
@@ -155,43 +172,46 @@
                 return () => unregisterAuthObserver();
             }, []);
 
-            // --- Firebase 監聽 (修正：移除後端排序，改為前端排序以避免 Index 錯誤) ---
+            // --- Firebase 監聽 ---
             useEffect(() => {
-                if (!currentUser) return; // 沒登入就不連線
+                if (!currentUser) return;
 
-                // 移除 .orderBy()，改由前端 JavaScript 排序
-                const unsubscribe = db.collection('expenses')
-                    .onSnapshot((snapshot) => {
-                        let newExpenses = snapshot.docs.map(doc => ({
-                            id: doc.id,
-                            ...doc.data()
-                        }));
+                // 使用 try-catch 包裹以防止非同步錯誤導致白畫面
+                try {
+                    const unsubscribe = db.collection('expenses')
+                        // 移除 orderBy 以避免索引問題，改用前端排序
+                        .onSnapshot((snapshot) => {
+                            let newExpenses = snapshot.docs.map(doc => ({
+                                id: doc.id,
+                                ...doc.data()
+                            }));
 
-                        // 在前端進行排序 (日期新 -> 舊)
-                        newExpenses.sort((a, b) => {
-                            // 先比日期
-                            const dateA = a.date || '';
-                            const dateB = b.date || '';
-                            const dateCompare = dateB.localeCompare(dateA);
-                            if (dateCompare !== 0) return dateCompare;
-                            
-                            // 如果日期一樣，比建立時間 (createdAt)
-                            const createdA = a.createdAt || '';
-                            const createdB = b.createdAt || '';
-                            return createdB.localeCompare(createdA);
+                            // 前端排序：日期新 -> 舊
+                            newExpenses.sort((a, b) => {
+                                const dateA = a.date || '';
+                                const dateB = b.date || '';
+                                const dateCompare = dateB.localeCompare(dateA);
+                                if (dateCompare !== 0) return dateCompare;
+                                
+                                const createdA = a.createdAt || '';
+                                const createdB = b.createdAt || '';
+                                return createdB.localeCompare(createdA);
+                            });
+
+                            setExpenses(newExpenses);
+                            setAuthError(null);
+                        }, (error) => {
+                            console.error("Firebase 連線錯誤:", error);
+                            if (error.code === 'permission-denied') {
+                                setAuthError("權限不足！請去 Firebase Console -> Firestore -> Rules，把規則改成 'allow read, write: if request.auth != null;'");
+                            } else {
+                                setAuthError("連線錯誤: " + error.message);
+                            }
                         });
-
-                        setExpenses(newExpenses);
-                        setAuthError(null); // 成功連線
-                    }, (error) => {
-                        console.error("Firebase 連線錯誤:", error);
-                        if (error.code === 'permission-denied') {
-                             setAuthError("權限不足！請去 Firebase Console -> Firestore -> Rules，把 'if false' 改成 'if request.auth != null'");
-                        } else {
-                             setAuthError("連線錯誤: " + error.message);
-                        }
-                    });
-                return () => unsubscribe();
+                    return () => unsubscribe();
+                } catch (e) {
+                    console.error("Setup listener error:", e);
+                }
             }, [currentUser]);
 
             // --- 抓匯率 ---
@@ -294,7 +314,7 @@
                 return transactions;
             }, [stats.balances, users]);
 
-            // --- 操作函數 (Firebase Version) ---
+            // --- 操作函數 ---
             const resetForm = () => {
                 setFormData({
                     title: '',
@@ -341,10 +361,8 @@
 
                 try {
                     if (editingExpenseId) {
-                        // Update
                         await db.collection('expenses').doc(editingExpenseId).update(payload);
                     } else {
-                        // Create
                         await db.collection('expenses').add({
                             ...payload,
                             createdAt: new Date().toISOString()
@@ -354,7 +372,7 @@
                     setActiveTab('dashboard');
                 } catch (error) {
                     console.error("儲存失敗", error);
-                    alert("無法儲存資料，請檢查網路或 Firebase 設定 (Billing)。");
+                    alert("儲存失敗：" + error.message);
                 }
             };
 
@@ -816,7 +834,6 @@
                         </div>
                     )}
 
-                    {/* Navigation - 底部加強墊高 (pb-safe-extra) 並額外增加 pb-12 */}
                     <nav className="fixed bottom-0 w-full max-w-md left-1/2 -translate-x-1/2 bg-white border-t border-slate-200 px-2 flex justify-between z-20 pb-safe-extra pb-12 shadow-[0_-5px_10px_rgba(0,0,0,0.02)]">
                         <TabButton id="dashboard" label="儀表板" icon={LayoutDashboard} />
                         <div className="relative -top-6">
@@ -825,7 +842,6 @@
                         <TabButton id="settings" label="設定" icon={Settings} />
                     </nav>
                     
-                    {/* 增加底部留白，確保滑動到底部時內容不被 nav bar 遮擋 */}
                     <div className="h-40"></div>
                 </div>
             );
