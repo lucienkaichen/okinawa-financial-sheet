@@ -43,18 +43,16 @@
 
     <!-- 
       ========================================
-      Firebase 設定區塊 (請修改這裡！) 
+      Firebase 設定區塊
       ========================================
     -->
     <script type="module">
-        // 這裡改用標準的 Firebase CDN，可以在任何地方執行
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js";
 
-        // ▼▼▼▼▼▼▼▼ 請將下方內容替換成你自己 Firebase 專案的設定 ▼▼▼▼▼▼▼▼
-        // 你可以在 Firebase Console -> Project Settings -> General -> Your apps 找到
-       const firebaseConfig = {
+        // 你的 Config
+        const firebaseConfig = {
             apiKey: "AIzaSyA5MRIK9yxJ_XNRIfgnLdXjRBoLFQWr8o0",
             authDomain: "okinawa-financial-sheet.firebaseapp.com",
             projectId: "okinawa-financial-sheet",
@@ -63,7 +61,6 @@
             appId: "1:1032242385806:web:7fa5753a22d4e45f934adf",
             measurementId: "G-33EEBGS9F3"
         };
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
         // 初始化 Firebase
         let app, auth, db;
@@ -76,8 +73,6 @@
             console.error("Firebase initialization failed. Did you update the config?", e);
         }
 
-        // 將這些功能掛載到 window，讓 React 可以讀取
-        // 為了相容原本的寫法，我們保持 window.firebaseModules 的名稱，但內容換成標準版
         window.firebaseModules = {
             auth, 
             db,
@@ -96,8 +91,6 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
         
-        // 為了讓資料結構單純一點，我們這裡設定一個固定的 App ID
-        // 這樣你的資料庫路徑就會是： artifacts/okinawa_2025/public/data/expenses
         const APP_ID = "okinawa_2025"; 
 
         const removeLoading = () => {
@@ -147,9 +140,10 @@
             const [exchangeRate, setExchangeRate] = useState(0.22);
             const [displayCurrency, setDisplayCurrency] = useState('TWD'); 
             
-            const [isGeneralOpen, setIsGeneralOpen] = useState(true);
+            // 預設收合
+            const [isGeneralOpen, setIsGeneralOpen] = useState(false);
             const [isPersonalOpen, setIsPersonalOpen] = useState(false); 
-            const [isDebtsOpen, setIsDebtsOpen] = useState(true);
+            const [isDebtsOpen, setIsDebtsOpen] = useState(false);
             const [isFundDetailsOpen, setIsFundDetailsOpen] = useState(false);
             
             const [editingExpenseId, setEditingExpenseId] = useState(null);
@@ -158,8 +152,15 @@
             const [confirmDelete, setConfirmDelete] = useState({ show: false, expense: null });
             const [isSaving, setIsSaving] = useState(false);
 
+            // 預設付款人為公費
             const [formData, setFormData] = useState({
-                title: '', inputAmount: '', currency: 'TWD', payers: [INITIAL_USERS[0].id], involved: INITIAL_USERS.map(u=>u.id), splitMode: 'equal', customDetails: {}, date: new Date().toISOString().split('T')[0], amountType: 'per_person'
+                title: '', inputAmount: '', currency: 'TWD', 
+                payers: [PUBLIC_FUND_ID], 
+                involved: INITIAL_USERS.map(u=>u.id), 
+                splitMode: 'equal', 
+                customDetails: {}, 
+                date: new Date().toISOString().split('T')[0], 
+                amountType: 'per_person' // 'per_person' or 'total'
             });
             const [memoizedTitle, setMemoizedTitle] = useState('');
 
@@ -200,6 +201,7 @@
                 }
             };
             
+            // KEY FIX: Display Logic to respect original input
             const getDisplayAmount = (itemAmountTwd, itemInputAmount, itemCurrency) => {
                 const isNegative = itemAmountTwd < 0;
                 
@@ -207,6 +209,7 @@
                     if (itemInputAmount !== null && itemInputAmount !== undefined && !isNaN(itemInputAmount)) {
                         return `${isNegative ? '-' : ''}${itemCurrency === 'JPY' ? '¥' : '$'}${Math.round(parseFloat(itemInputAmount)).toLocaleString()}`;
                     } else {
+                        // Safe fallback just in case
                         let val = Math.abs(itemAmountTwd);
                         if (itemCurrency === 'JPY') {
                             val = val / exchangeRate;
@@ -220,20 +223,16 @@
                 }
             };
 
-            // Init Firebase Modules Check
             useEffect(() => {
                 const check = setInterval(() => {
                     if (window.firebaseModules && window.firebaseModules.auth) {
                         clearInterval(check);
                         setFb(window.firebaseModules);
-                        
-                        // Start Auth
                         const { auth, signInAnonymously, onAuthStateChanged } = window.firebaseModules;
                         signInAnonymously(auth).catch(e => {
                             console.error("Auth Error:", e);
                             showToast("登入失敗，請檢查 Firebase Auth 設定", "error");
                         });
-                        
                         onAuthStateChanged(auth, (user) => {
                             if(user) setCurrentUser(user);
                             removeLoading();
@@ -243,19 +242,24 @@
                 return () => clearInterval(check);
             }, []);
 
-            // Data Listener
             useEffect(() => {
                 if (!currentUser || !fb) return;
                 const { db, collection, onSnapshot, doc } = fb;
-                
-                // Using hardcoded APP_ID for clean path
                 const expensesRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses');
                 const settingsDoc = doc(db, 'artifacts', APP_ID, 'public', 'data', 'appSettings', 'gasConfig');
 
                 const unsubExpenses = onSnapshot(expensesRef, (snapshot) => {
                     let newExpenses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    // 修正排序：日期相同時，新建立的在上面 (createdAt desc)
                     newExpenses.sort((a, b) => {
-                        return new Date(b.date) - new Date(a.date) || b.createdAt?.localeCompare(a.createdAt);
+                        const dateA = new Date(a.date);
+                        const dateB = new Date(b.date);
+                        if (dateB.getTime() !== dateA.getTime()) {
+                            return dateB - dateA;
+                        }
+                        const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                        const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                        return createdB - createdA;
                     });
                     setExpenses(newExpenses);
                 }, (err) => {
@@ -316,7 +320,6 @@
                             if (share[uid] !== undefined) { share[uid] += s; bal[uid] -= s; }
                         });
                     } else {
-                        // Equal split
                         const count = exp.involved.length; 
                         const split = amountTwd / count;
                         exp.involved.forEach(uid => { 
@@ -360,7 +363,15 @@
                     grouped.push(group);
                 });
                 
-                return grouped.sort((a, b) => new Date(b.date) - new Date(a.date));
+                return grouped.sort((a, b) => {
+                    const dateA = new Date(a.date);
+                    const dateB = new Date(b.date);
+                    if (dateB.getTime() !== dateA.getTime()) return dateB - dateA;
+                    // Sort groups by newest item in them
+                    const maxCreatedA = Math.max(...a.items.map(i => i.createdAt ? new Date(i.createdAt).getTime() : 0));
+                    const maxCreatedB = Math.max(...b.items.map(i => i.createdAt ? new Date(i.createdAt).getTime() : 0));
+                    return maxCreatedB - maxCreatedA;
+                });
             };
 
             const groupedExpenses = useMemo(() => createGroupedList(expenses, true), [expenses]);
@@ -408,11 +419,12 @@
                         ...prev, 
                         payers: [PUBLIC_FUND_ID], 
                         splitMode: 'equal', 
-                        involved: INITIAL_USERS.map(u => u.id), // Reset involved to everyone
-                        title: ''
+                        involved: INITIAL_USERS.map(u => u.id), 
+                        title: '' 
                     })); 
                     return;
                 }
+                
                 let newPayers = formData.payers.includes(PUBLIC_FUND_ID) ? [] : [...formData.payers];
                 if (newPayers.includes(uid)) {
                     if (newPayers.length > 1) newPayers = newPayers.filter(id => id !== uid);
@@ -421,10 +433,25 @@
                 }
                 
                 let newSplitMode = formData.splitMode;
-                let newTitle = formData.title;
+                let newTitle = formData.title; 
+                
+                // Mode Logic Switch
                 if (newPayers.length > 1) {
-                    newSplitMode = 'fund_topup';
-                    if (!newTitle) newTitle = '上繳公費';
+                    // FIX: Default to Separate Pay when multi-select
+                    if (formData.payers.length <= 1) {
+                        newSplitMode = 'separate_pay'; 
+                        newTitle = memoizedTitle; // Keep user title for separate pay
+                    }
+                } else {
+                    // Back to Single Payer
+                    if (formData.payers.length > 1) {
+                        newSplitMode = 'equal';
+                        newTitle = memoizedTitle; // Restore user title
+                    }
+                    // FIX: If we were in fund_topup (single payer mode), keep it locked
+                    if (newSplitMode === 'fund_topup') {
+                        newTitle = '上繳公費';
+                    }
                 }
 
                 setFormData(prev => ({...prev, payers: newPayers, splitMode: newSplitMode, title: newTitle}));
@@ -432,9 +459,21 @@
 
             const toggleInvolved = (uid) => {
                 if (formData.payers.includes(PUBLIC_FUND_ID)) return;
-                
                 const cur = formData.involved;
                 setFormData({...formData, involved: cur.includes(uid) ? (cur.length>1?cur.filter(id=>id!==uid):cur) : [...cur, uid]}); 
+            };
+
+            const toggleSplitMode = (mode) => {
+                let newTitle = formData.title;
+                if (mode === 'fund_topup') {
+                    newTitle = '上繳公費';
+                } else if (mode === 'separate_pay' || mode === 'personal' || mode === 'equal') {
+                    // Restore title when leaving topup mode
+                    if (formData.splitMode === 'fund_topup') {
+                        newTitle = memoizedTitle; 
+                    }
+                }
+                setFormData(prev => ({...prev, splitMode: mode, title: newTitle}));
             };
 
             const saveExpense = async () => {
@@ -458,35 +497,93 @@
                 const batch = writeBatch(db);
 
                 const inputVal = parseFloat(formData.inputAmount);
-                const finalTwd = formData.currency === 'JPY' ? Math.round(inputVal * exchangeRate) : inputVal;
+                
+                // --- UNIVERSAL CALCULATION LOGIC (V7.0) ---
+                // Determine divisor based on context to get Per Person Amount
+                let count = 1;
+                
+                if (formData.splitMode === 'separate_pay' || formData.splitMode === 'fund_topup') {
+                    // Multi-payer context: count is number of payers
+                    count = formData.payers.length;
+                } else if (formData.payers.includes(PUBLIC_FUND_ID)) {
+                    // Public Fund context: Always 5 people
+                    count = INITIAL_USERS.length;
+                } else if (formData.splitMode === 'equal') {
+                    // Single Payer / Equal Split context: count is involved users
+                    count = formData.involved.length;
+                }
 
-                let amountPerRecord = finalTwd;
-                let inputPerRecord = inputVal;
+                let finalInputPerRecord = inputVal;
+                let finalInputTotal = inputVal;
+
+                if (formData.amountType === 'total') {
+                    // User entered Total -> Calculate Per Person
+                    finalInputPerRecord = inputVal / count;
+                    finalInputTotal = inputVal;
+                } else {
+                    // User entered Per Person -> Calculate Total
+                    finalInputPerRecord = inputVal;
+                    finalInputTotal = inputVal * count;
+                }
+
+                // Convert to TWD
+                // Note: We use the calculated Per Record amount for conversion base to keep unit accuracy
+                const finalTwdPerRecord = formData.currency === 'JPY' ? Math.round(finalInputPerRecord * exchangeRate) : finalInputPerRecord;
+                const finalTwdTotal = formData.currency === 'JPY' ? Math.round(finalInputTotal * exchangeRate) : finalInputTotal;
+
+                // --- END CALCULATION ---
                 
                 if (editingGroupIds) {
                     editingGroupIds.forEach(id => batch.delete(doc(db, 'artifacts', APP_ID, 'public', 'data', 'expenses', id)));
                 }
 
-                formData.payers.forEach(payerId => {
-                    const newDocRef = doc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses')); 
-                    let docRef = (editingExpenseId && !editingGroupIds) ? doc(db, 'artifacts', APP_ID, 'public', 'data', 'expenses', editingExpenseId) : newDocRef;
-                    
-                    let payload = { 
-                        title: formData.title, currency: formData.currency, payer: payerId, 
-                        involved: formData.involved, splitMode: formData.splitMode, customDetails: formData.customDetails,
-                        date: formData.date, note: formData.note || '', 
-                        inputAmount: inputPerRecord, 
-                        amountTwd: amountPerRecord,
-                        updatedAt: new Date().toISOString()
-                    };
-                    if (!editingExpenseId && !editingGroupIds) payload.createdAt = new Date().toISOString();
-                    
-                    batch.set(docRef, payload);
-                });
+                if (formData.splitMode === 'separate_pay' || formData.splitMode === 'fund_topup') {
+                    // Multi-Payer: Generate multiple docs
+                    // If Separate Pay: Each doc is a 'personal' expense
+                    // If Topup: Each doc is a 'fund_topup' expense
+                    // In both cases, the inputAmount stored in doc should be the PER PERSON amount.
+                    formData.payers.forEach(payerId => {
+                        const newDocRef = doc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses')); 
+                        let payload = { 
+                            title: formData.title, currency: formData.currency, payer: payerId, 
+                            involved: formData.splitMode === 'separate_pay' ? [payerId] : formData.involved, 
+                            splitMode: formData.splitMode === 'separate_pay' ? 'personal' : 'fund_topup', 
+                            customDetails: {},
+                            date: formData.date, note: formData.note || '', 
+                            inputAmount: finalInputPerRecord, // Store Per Person
+                            amountTwd: finalTwdPerRecord,     // Store Per Person TWD
+                            updatedAt: new Date().toISOString(),
+                            createdAt: new Date().toISOString()
+                        };
+                        batch.set(newDocRef, payload);
+                    });
+                } else {
+                    // Single Payer / Public Fund: Generate single doc
+                    // Logic: The document represents the TOTAL transaction.
+                    // So we store the TOTAL amount.
+                    // This ensures balances are deducted by the total amount paid by the payer.
+                    formData.payers.forEach(payerId => {
+                        const newDocRef = doc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses')); 
+                        let docRef = (editingExpenseId && !editingGroupIds) ? doc(db, 'artifacts', APP_ID, 'public', 'data', 'expenses', editingExpenseId) : newDocRef;
+                        
+                        let payload = { 
+                            title: formData.title, currency: formData.currency, payer: payerId, 
+                            involved: formData.involved, splitMode: formData.splitMode, customDetails: formData.customDetails,
+                            date: formData.date, note: formData.note || '', 
+                            inputAmount: finalInputTotal, // Store TOTAL
+                            amountTwd: finalTwdTotal,     // Store TOTAL TWD
+                            updatedAt: new Date().toISOString()
+                        };
+                        if (!editingExpenseId && !editingGroupIds) payload.createdAt = new Date().toISOString();
+                        
+                        batch.set(docRef, payload);
+                    });
+                }
 
                 try {
                     await batch.commit();
-                    setFormData({ title: '', inputAmount: '', currency: 'TWD', payers: [viewingUserId || INITIAL_USERS[0].id], involved: users.map(u=>u.id), splitMode: 'equal', customDetails: {}, date: new Date().toISOString().split('T')[0], amountType: 'per_person' });
+                    setFormData({ title: '', inputAmount: '', currency: 'TWD', payers: [PUBLIC_FUND_ID], involved: INITIAL_USERS.map(u=>u.id), splitMode: 'equal', customDetails: {}, date: new Date().toISOString().split('T')[0], amountType: 'per_person' });
+                    setMemoizedTitle(''); 
                     setEditingExpenseId(null); setEditingGroupIds(null); setActiveTab('dashboard');
                     showToast('已記下！', 'success');
                 } catch (e) { 
@@ -523,7 +620,7 @@
                 if(!sheetUrl) { setActiveTab('settings'); return; }
                 setIsSyncing(true); setSyncStatus(null);
                 const payload = {
-                    expenses: expenses.map(e => ({ ...e, displayAmount: e.currency==='JPY'?`¥${e.inputAmount} (約$${e.amountTwd})`:`$${e.amountTwd}`, payerName: e.payer === PUBLIC_FUND_ID ? '公費' : users.find(u=>u.id===e.payer)?.name, involvedNames: e.splitMode==='fund_topup' ? '上繳公費' : e.splitMode==='custom' ? Object.entries(e.customDetails).map(([id,v])=>`${users.find(u=>u.id===id)?.name}($${v})`).join(', ') : e.splitMode==='personal' ? '自己花' : e.involved.map(id=>users.find(u=>u.id===id)?.name).join(', ') })),
+                    expenses: expenses.map(e => ({ ...e, displayAmount: e.currency==='JPY'?`¥${e.inputAmount} (約$${e.amountTwd})`:`$${e.amountTwd}`, payerName: e.payer === PUBLIC_FUND_ID ? '公費' : users.find(u=>u.id===e.payer)?.name, involvedNames: e.splitMode==='fund_topup' ? '上繳公費' : e.splitMode==='custom' ? Object.entries(e.customDetails).map(([id,v])=>`${users.find(u=>u.id===id)?.name}($${v})`).join(', ') : e.splitMode==='personal' ? '自己付' : e.involved.map(id=>users.find(u=>u.id===id)?.name).join(', ') })),
                     debts, summary: users.map(u => ({ name: u.name, share: stats.totalShare[u.id]?.toFixed(0)||0 }))
                 };
                 try { await fetch(sheetUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) }); setTimeout(() => { setIsSyncing(false); setSyncStatus('success'); showToast('同步成功', 'success'); }, 1000); } catch (e) { setIsSyncing(false); setSyncStatus('error'); showToast('同步失敗'); }
@@ -547,36 +644,57 @@
                     return 0;
                 };
 
+                const calculateMyInputShare = (item) => {
+                    const inputAmt = parseFloat(item.inputAmount || 0);
+                    if (item.splitMode === 'personal') {
+                        return (item.payer === viewingUserId) ? inputAmt : 0;
+                    } else if (item.splitMode === 'custom') {
+                        return 0; 
+                    } else if (item.splitMode === 'fund_topup') {
+                        return 0; 
+                    } else if (item.involved.includes(viewingUserId)) {
+                        return inputAmt / item.involved.length;
+                    }
+                    return 0;
+                };
+
                 let myShare = calculateMyShare(expense);
                 let amountToShow = isPersonal ? myShare : expense.amountTwd;
-                
+                let inputAmountToShow = isPersonal ? calculateMyInputShare(expense) : expense.inputAmount;
+
                 let isPurePrepay = isPersonal && (expense.payer === viewingUserId) && (expense.splitMode === 'fund_topup' || myShare === 0);
                 
-                if (isPurePrepay) amountToShow = expense.amountTwd;
+                if (isPurePrepay) {
+                    amountToShow = expense.amountTwd;
+                    inputAmountToShow = expense.inputAmount;
+                }
                 if (isPersonal && !isPurePrepay && myShare === 0 && expense.payer !== viewingUserId) return null; 
 
                 const getTagStyle = (mode, payer) => {
-                    if (mode === 'fund_topup') return 'bg-purple-100 text-purple-700'; 
-                    if (payer === PUBLIC_FUND_ID) return 'bg-orange-100 text-orange-700';
-                    if (mode === 'personal') return 'bg-yellow-100 text-yellow-700'; 
-                    return 'bg-red-100 text-red-700'; 
+                    if (mode === 'fund_topup') return 'bg-red-100 text-red-700'; // 上繳公費 (改為紅色)
+                    if (payer === PUBLIC_FUND_ID) return 'bg-blue-100 text-blue-700'; // 公費付 (維持藍色)
+                    if (mode === 'personal') return 'bg-amber-100 text-amber-800'; // 自己付 (改為琥珀色)
+                    return 'bg-orange-100 text-orange-700'; // XXX先付 (維持淺橘色)
                 };
 
                 const getTagText = (mode, payerName) => {
-                    if (mode === 'fund_topup') return '上繳';
+                    if (mode === 'fund_topup') return '上繳公費';
                     if (payerName === '公費') return '公費付';
-                    if (mode === 'personal') return '自己花';
+                    if (mode === 'personal') return '自己付';
                     return `${payerName}先付`;
                 };
                 
                 let displayTotal = expense.totalGroupAmount;
+                let displayInputTotal = expense.totalInputAmount;
+
                 if (isPersonal && expense.isGroup) {
                      displayTotal = expense.items.reduce((sum, item) => sum + calculateMyShare(item), 0);
+                     displayInputTotal = expense.items.reduce((sum, item) => sum + calculateMyInputShare(item), 0);
                 } else if (isPersonal && !expense.isGroup) {
-                     displayTotal = isPurePrepay ? expense.amountTwd : myShare;
+                     displayTotal = amountToShow;
+                     displayInputTotal = inputAmountToShow;
                 }
                 
-                let displayInputTotal = null;
                 if (!isPersonal) {
                      displayInputTotal = expense.isGroup ? expense.totalInputAmount : expense.inputAmount;
                 }
@@ -620,17 +738,20 @@
                                     const isFundTopUp = item.splitMode === 'fund_topup';
                                     
                                     let itemAmount = item.amountTwd;
+                                    let itemInput = item.inputAmount;
                                     let itemIsPurePrepay = false;
                                     if (isPersonal) {
                                         let s = calculateMyShare(item);
+                                        let si = calculateMyInputShare(item);
                                         itemIsPurePrepay = (item.payer === viewingUserId) && (isFundTopUp || s === 0);
                                         itemAmount = itemIsPurePrepay ? item.amountTwd : s;
+                                        itemInput = itemIsPurePrepay ? item.inputAmount : si;
                                     } else {
                                         itemIsPurePrepay = (item.splitMode === 'personal' && !item.involved.includes(item.payer)) || isFundTopUp;
                                     }
 
                                     const showGray = isFundTopUp || itemIsPurePrepay;
-                                    const itemDisplayAmount = getDisplayAmount(itemAmount, item.inputAmount, item.currency);
+                                    const itemDisplayAmount = getDisplayAmount(itemAmount, itemInput, item.currency);
                                     
                                     let listTagStyle = getTagStyle(item.splitMode, item.payer);
                                     let listTagText = getTagText(item.splitMode, itemPayer);
@@ -652,7 +773,7 @@
 
                 let finalDisplayStr = "";
                 if (isPersonal && !isPurePrepay && expense.splitMode !== 'personal') {
-                     finalDisplayStr = formatMoney(amountToShow);
+                     finalDisplayStr = getDisplayAmount(amountToShow, inputAmountToShow, expense.currency);
                 } else {
                      finalDisplayStr = getDisplayAmount(amountToShow, expense.inputAmount, expense.currency);
                 }
@@ -676,7 +797,7 @@
                         </div>
                         <div className="flex justify-between items-end">
                             <div className="text-xs text-slate-500 mt-1 flex-1 mr-4">
-                                {expense.splitMode === 'fund_topup' ? `${payerName} 儲值進公費` : expense.splitMode === 'personal' ? `${payerName} 自己花` : `由 ${expense.involved.map(id=>users.find(u=>u.id===id)?.name).join('、')} 平分`}
+                                {expense.splitMode === 'fund_topup' ? `${payerName} 儲值進公費` : expense.splitMode === 'personal' ? `${payerName} 自己付` : `由 ${expense.involved.map(id=>users.find(u=>u.id===id)?.name).join('、')} 平分`}
                             </div>
                             <ActionButtons />
                         </div>
@@ -690,6 +811,69 @@
                     <Icon size={20} className="mb-1" /><span className="text-xs font-medium">{label}</span>
                 </button>
             );
+
+            // --- Helper: Get Calculation Text for UI ---
+            const getCalculationText = () => {
+                if (!formData.inputAmount) return null;
+                const amt = parseFloat(formData.inputAmount);
+                const currency = formData.currency === 'JPY' ? '¥' : '$';
+                
+                // Common styling for info boxes
+                const InfoBox = ({ mainLabel, mainValue, subLabel, subValue, theme = 'default' }) => {
+                    const themes = {
+                        default: 'bg-slate-50 border-slate-100 text-slate-700', // Default
+                        amber: 'bg-amber-50 border-amber-100 text-amber-900',
+                        blue: 'bg-blue-50 border-blue-100 text-blue-900', 
+                    };
+                    return (
+                        <div className={`${themes[theme]} border rounded-lg p-3 flex justify-between items-center w-full shadow-sm`}>
+                            <div className="flex flex-col items-start">
+                                <span className={`text-[10px] font-bold uppercase tracking-wide opacity-60 mb-0.5`}>{mainLabel}</span>
+                                <span className="text-xl font-bold">{mainValue}</span>
+                            </div>
+                            {subLabel && (
+                                <div className="text-right flex flex-col items-end">
+                                    <span className="text-[10px] opacity-50 block mb-0.5">{subLabel}</span>
+                                    <span className="text-sm font-medium opacity-80">{subValue}</span>
+                                </div>
+                            )}
+                        </div>
+                    );
+                };
+
+                // Case 1: Multi-Payer
+                if (isMultiPayer) {
+                    const count = formData.payers.length;
+                    if (formData.amountType === 'per_person') {
+                        return <InfoBox theme="amber" mainLabel="每人支付" mainValue={`${currency}${amt.toLocaleString()}`} subLabel="總共收到" subValue={`${currency}${(amt*count).toLocaleString()}`} />;
+                    } else {
+                        return <InfoBox theme="amber" mainLabel="總共收到" mainValue={`${currency}${amt.toLocaleString()}`} subLabel="每人支付" subValue={`${currency}${(amt/count).toLocaleString(undefined, {maximumFractionDigits: 1})}`} />;
+                    }
+                }
+                
+                // Case 2: Public Fund Payer
+                if (isFundPayer) {
+                    const count = 5; // Fixed 5 users
+                    if (formData.amountType === 'per_person') {
+                        return <InfoBox theme="blue" mainLabel="每人消費" mainValue={`${currency}${amt.toLocaleString()}`} subLabel="公費總扣" subValue={`${currency}${(amt*count).toLocaleString()}`} />;
+                    } else {
+                        return <InfoBox theme="blue" mainLabel="公費總扣" mainValue={`${currency}${amt.toLocaleString()}`} subLabel="每人消費" subValue={`${currency}${(amt/count).toLocaleString(undefined, {maximumFractionDigits: 1})}`} />;
+                    }
+                }
+
+                // Case 3: Single Payer (Helping others / Equal Split)
+                if (formData.splitMode === 'equal') {
+                    const count = formData.involved.length;
+                    if (formData.amountType === 'per_person') {
+                        return <InfoBox theme="default" mainLabel="每人欠你" mainValue={`${currency}${amt.toLocaleString()}`} subLabel="你先付總額" subValue={`${currency}${(amt*count).toLocaleString()}`} />;
+                    } else {
+                        return <InfoBox theme="default" mainLabel="你先付總額" mainValue={`${currency}${amt.toLocaleString()}`} subLabel="每人欠你" subValue={`${currency}${(amt/count).toLocaleString(undefined, {maximumFractionDigits: 1})}`} />;
+                    }
+                }
+
+                // Default (Personal / Custom)
+                return <InfoBox mainLabel="金額" mainValue={`${currency}${amt.toLocaleString()}`} />;
+            };
 
             return (
                 <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col pb-[calc(env(safe-area-inset-bottom)+80px)]">
@@ -789,7 +973,14 @@
                                     <div><label className="block text-sm font-medium text-slate-500 mb-1">日期</label><input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="input-standard p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" /></div>
                                     <div><label className="block text-sm font-medium text-slate-500 mb-1">項目</label><input type="text" value={formData.title} onChange={e => {setFormData({...formData, title: e.target.value}); setMemoizedTitle(e.target.value);}} className="input-standard p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="輸入項目名稱" disabled={formData.splitMode === 'fund_topup'} /></div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-500 mb-1">{isMultiPayer ? "每人支付金額" : "金額"}</label>
+                                        {/* Amount Type Toggle (Universally Available) */}
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="block text-sm font-medium text-slate-500">金額</label>
+                                            <div className="flex bg-slate-100 rounded-lg p-0.5">
+                                                <button onClick={() => setFormData(p => ({...p, amountType: 'per_person'}))} className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all ${formData.amountType === 'per_person' ? 'bg-white text-cyan-600 shadow-sm' : 'text-slate-400'}`}>每人</button>
+                                                <button onClick={() => setFormData(p => ({...p, amountType: 'total'}))} className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all ${formData.amountType === 'total' ? 'bg-white text-cyan-600 shadow-sm' : 'text-slate-400'}`}>總額</button>
+                                            </div>
+                                        </div>
                                         <div className="flex gap-2">
                                             <div className="relative flex-1">
                                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">{formData.currency === 'JPY' ? '¥' : '$'}</span>
@@ -800,45 +991,68 @@
                                                 <button onClick={() => setFormData({...formData, currency: 'JPY'})} className={`px-3 text-xs font-bold rounded-lg transition-all ${formData.currency === 'JPY' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>JPY</button>
                                             </div>
                                         </div>
-                                        {formData.currency === 'JPY' && formData.inputAmount && <p className="text-xs text-slate-400 mt-1 text-right">≈ TWD ${Math.round(formData.inputAmount * exchangeRate).toLocaleString()}</p>}
+                                        {/* Helper Text for approx calculation */}
+                                        {formData.currency === 'JPY' && formData.inputAmount && <p className="text-xs text-slate-400 mt-1 text-right">≈ TWD ${Math.round((formData.amountType === 'total' && (isMultiPayer || isFundPayer || (!isMultiPayer && formData.splitMode==='equal')) ? parseFloat(formData.inputAmount) / (isMultiPayer ? formData.payers.length : (isFundPayer ? 5 : formData.involved.length)) : parseFloat(formData.inputAmount)) * exchangeRate).toLocaleString()} / 人</p>}
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-500 mb-2">誰付錢？</label>
-                                        <div className="flex flex-wrap gap-2">
-                                            <button onClick={() => togglePayer(PUBLIC_FUND_ID)} className={`px-3 py-2 rounded-full text-sm font-bold transition-all flex items-center gap-1 ${formData.payers.includes(PUBLIC_FUND_ID) ? 'bg-blue-500 text-white shadow-md' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}><Wallet size={14}/>公費</button>
+                                        
+                                        {/* OPTIMIZED BUTTON LAYOUT: 2 rows of 3 cols (grid-cols-3) */}
+                                        <div className="grid grid-cols-3 gap-2 w-full">
+                                            <button onClick={() => togglePayer(PUBLIC_FUND_ID)} className={`col-span-1 py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-1 ${formData.payers.includes(PUBLIC_FUND_ID) ? 'bg-blue-500 text-white shadow-md transform scale-[1.02]' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>
+                                                <Wallet size={14}/>公費
+                                            </button>
                                             {users.map(u => (
-                                                <button key={u.id} onClick={() => togglePayer(u.id)} className={`px-3 py-2 rounded-full text-sm transition-all ${formData.payers.includes(u.id) ? 'bg-cyan-500 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{u.name}</button>
+                                                <button key={u.id} onClick={() => togglePayer(u.id)} className={`col-span-1 py-3 rounded-xl text-sm transition-all font-medium ${formData.payers.includes(u.id) ? 'bg-cyan-500 text-white shadow-md transform scale-[1.02]' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                                                    {u.name}
+                                                </button>
                                             ))}
                                         </div>
                                     </div>
-                                    <div className="bg-slate-50 p-1 rounded-xl flex items-center justify-center">
+                                    
+                                    {/* Info Box & Mode Buttons - Cleaned up spacing */}
+                                    <div className="w-full space-y-3 mt-1">
+                                        <div className="w-full">
+                                            {getCalculationText()}
+                                        </div>
+                                        
                                         {isMultiPayer ? (
-                                            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-center space-y-1 w-full">
-                                                <p className="text-sm text-yellow-800">將為 <span className="font-bold">{formData.payers.length}</span> 位成員各建立一筆上繳紀錄</p>
-                                                {formData.inputAmount && (
-                                                    <p className="text-lg font-bold text-yellow-900">
-                                                        總共收到: {formData.currency === 'JPY' ? '¥' : '$'}{(parseFloat(formData.inputAmount) * formData.payers.length).toLocaleString()}
-                                                    </p>
-                                                )}
+                                            <div className="flex gap-2">
+                                                <button onClick={() => toggleSplitMode('separate_pay')} className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${formData.splitMode === 'separate_pay' ? 'bg-amber-100 text-amber-700 shadow-sm border border-amber-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>各自付</button>
+                                                <button onClick={() => toggleSplitMode('fund_topup')} className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${formData.splitMode === 'fund_topup' ? 'bg-red-100 text-red-700 shadow-sm border border-red-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>上繳公費</button>
                                             </div>
                                         ) : (
                                             <>
-                                                <button onClick={() => setFormData({...formData, splitMode: 'equal', title: memoizedTitle})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'equal' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>
-                                                    平分
-                                                </button>
-                                                {/* Custom button removed as requested */}
-                                                {!isFundPayer && <button onClick={() => setFormData({...formData, splitMode: 'personal', title: memoizedTitle})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'personal' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>自己花</button>}
-                                                {!isFundPayer && <button onClick={() => setFormData(prev => ({...prev, splitMode: 'fund_topup', title: '上繳公費'}))} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'fund_topup' ? 'bg-amber-100 text-amber-600 shadow' : 'text-slate-400'}`}>上繳公費</button>}
+                                                {isFundPayer ? (
+                                                    // No extra buttons needed for Fund Payer, InfoBox is enough
+                                                    null
+                                                ) : (
+                                                    <div className="w-full">
+                                                        <div className="flex gap-2 mb-2 px-1">
+                                                            <button onClick={() => setFormData({...formData, splitMode: 'equal', title: memoizedTitle})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'equal' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>
+                                                                平分
+                                                            </button>
+                                                            <button onClick={() => setFormData({...formData, splitMode: 'personal', title: memoizedTitle})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'personal' ? 'bg-amber-100 text-amber-600 shadow' : 'text-slate-400'}`}>自己付</button>
+                                                            <button onClick={() => setFormData(prev => ({...prev, splitMode: 'fund_topup', title: '上繳公費'}))} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'fund_topup' ? 'bg-red-100 text-red-600 shadow' : 'text-slate-400'}`}>上繳公費</button>
+                                                        </div>
+                                                        
+                                                        {/* Equal Split Mode (Single Payer) - 1 Row Grid, Removed outer gray box */}
+                                                        {formData.splitMode === 'equal' && (
+                                                            <div className="mt-1 px-1">
+                                                                <div className="grid grid-cols-5 gap-1 w-full">
+                                                                     {users.map(u => (
+                                                                        <button key={u.id} onClick={() => toggleInvolved(u.id)} className={`col-span-1 py-2 rounded-lg text-xs border transition-all flex items-center justify-center ${formData.involved.includes(u.id) ? 'border-cyan-400 bg-cyan-50 text-cyan-700 font-bold' : 'border-slate-200 bg-transparent text-slate-400'} ${isFundPayer ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                                            {u.name}
+                                                                        </button>
+                                                                     ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </>
                                         )}
                                     </div>
-                                    
-                                    {/* Equal Split Mode (Single Payer) */}
-                                    {formData.splitMode === 'equal' && !isMultiPayer && (
-                                        <div className="flex flex-wrap gap-2">
-                                             {users.map(u => <button key={u.id} onClick={() => toggleInvolved(u.id)} className={`px-3 py-2 rounded-full text-sm border transition-all ${formData.involved.includes(u.id) ? 'border-cyan-400 bg-cyan-50 text-cyan-700' : 'border-slate-200 bg-transparent text-slate-400 font-normal'} ${isFundPayer ? 'opacity-50 cursor-not-allowed' : ''}`}>{u.name}</button>)}
-                                        </div>
-                                    )}
                                     
                                     <div><label className="block text-sm font-medium text-slate-500 mb-1">備註</label><input type="text" value={formData.note || ''} onChange={e => setFormData({...formData, note: e.target.value})} className="input-standard p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="" /></div>
                                     <div className="pt-4"><button onClick={saveExpense} disabled={isSaving} className={`w-full py-4 bg-cyan-500 text-white rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-all flex justify-center items-center gap-2 ${isSaving ? 'opacity-70 cursor-wait' : ''}`}><Save size={20} />{editingExpenseId ? '儲存修改' : (isSaving ? '處理中...' : '記下來')}</button></div>
@@ -863,7 +1077,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div className="text-center text-[10px] text-slate-300 pb-8 uppercase tracking-widest">v6.4 - Standalone Firebase</div>
+                                <div className="text-center text-[10px] text-slate-300 pb-8 uppercase tracking-widest">v7.6 - Color Swap</div>
                             </div>
                         )}
                     </main>
