@@ -93,11 +93,13 @@
             ChevronUp: (p) => <IconBase {...p}><path d="m18 15-6-6-6 6"/></IconBase>,
             Save: (p) => <IconBase {...p}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></IconBase>,
             User: (p) => <IconBase {...p}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></IconBase>,
-            Alert: (p) => <IconBase {...p}><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></IconBase>
+            Alert: (p) => <IconBase {...p}><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></IconBase>,
+            Wallet: (p) => <IconBase {...p}><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></IconBase>
         };
-        const { Plus, Trash2, Users, LayoutDashboard, Edit2, Settings, Globe, RefreshCw, CheckCircle, FileSpreadsheet, HelpCircle, X, PieChart, ArrowRight, ChevronDown, ChevronUp, Save, User, Alert } = Icons;
+        const { Plus, Trash2, Users, LayoutDashboard, Edit2, Settings, Globe, RefreshCw, CheckCircle, FileSpreadsheet, HelpCircle, X, PieChart, ArrowRight, ChevronDown, ChevronUp, Save, User, Alert, Wallet } = Icons;
 
         const INITIAL_USERS = [ { id: '1', name: '陳浚愷' }, { id: '2', name: '許瀅珊' }, { id: '3', name: '黃韻庭' }, { id: '4', name: '楊予瑄' }, { id: '5', name: '侯宇薪' } ];
+        const PUBLIC_FUND_ID = 'public_fund'; 
 
         function App() {
             const [users, setUsers] = useState(INITIAL_USERS);
@@ -110,11 +112,13 @@
             const [isGeneralOpen, setIsGeneralOpen] = useState(false);
             const [isPersonalOpen, setIsPersonalOpen] = useState(false); 
             const [isDebtsOpen, setIsDebtsOpen] = useState(false);
+            const [isFundDetailsOpen, setIsFundDetailsOpen] = useState(false);
+            
             const [editingExpenseId, setEditingExpenseId] = useState(null);
             const [toast, setToast] = useState({ show: false, msg: '', type: 'info' });
 
             const [formData, setFormData] = useState({
-                title: '', inputAmount: '', currency: 'TWD', payer: INITIAL_USERS[0].id, involved: INITIAL_USERS.map(u=>u.id), splitMode: 'equal', customDetails: {}, date: new Date().toISOString().split('T')[0]
+                title: '', inputAmount: '', currency: 'TWD', payers: [INITIAL_USERS[0].id], involved: INITIAL_USERS.map(u=>u.id), splitMode: 'equal', customDetails: {}, date: new Date().toISOString().split('T')[0], amountType: 'total'
             });
             const [sheetUrl, setSheetUrl] = useState(''); 
             const [isSyncing, setIsSyncing] = useState(false);
@@ -160,21 +164,29 @@
             }, []);
 
             useEffect(() => {
-                if (viewingUserId && !editingExpenseId) {
-                    setFormData(prev => ({ ...prev, payer: viewingUserId }));
+                if (activeTab === 'add') {
+                    if (formData.splitMode === 'fund_topup') {
+                        setFormData(prev => ({ ...prev, title: '上繳公費' }));
+                    } else if (formData.title === '上繳公費') {
+                        setFormData(prev => ({ ...prev, title: '' }));
+                    }
                 }
-            }, [viewingUserId, editingExpenseId]);
+            }, [formData.splitMode, activeTab]);
 
-            // 核心邏輯修正：計算統計數據 (個人帳本只看消費部分)
             const stats = useMemo(() => {
                 const bal = {}; const share = {};
                 users.forEach(u => { bal[u.id] = 0; share[u.id] = 0; });
+                bal[PUBLIC_FUND_ID] = 0; 
+
                 expenses.forEach(exp => {
-                    const paidBy = exp.payer; const amountTwd = parseFloat(exp.amountTwd || 0);
+                    const paidBy = exp.payer; 
+                    const amountTwd = parseFloat(exp.amountTwd || 0);
+
                     if (bal[paidBy] !== undefined) bal[paidBy] += amountTwd;
                     
-                    // 消費份額計算 (僅加總參與其中的人)
-                    if (exp.splitMode === 'personal') {
+                    if (exp.splitMode === 'fund_topup') {
+                        bal[PUBLIC_FUND_ID] -= amountTwd;
+                    } else if (exp.splitMode === 'personal') {
                         if (share[paidBy] !== undefined) { share[paidBy] += amountTwd; bal[paidBy] -= amountTwd; }
                     } else if (exp.splitMode === 'custom' && exp.customDetails) {
                         Object.entries(exp.customDetails).forEach(([uid, val]) => {
@@ -182,21 +194,38 @@
                             if (share[uid] !== undefined) { share[uid] += s; bal[uid] -= s; }
                         });
                     } else {
-                        const count = exp.involved.length; const split = amountTwd / count;
-                        exp.involved.forEach(uid => { if (share[uid] !== undefined) { share[uid] += split; bal[uid] -= split; } });
+                        const count = exp.involved.length; 
+                        const split = amountTwd / count;
+                        exp.involved.forEach(uid => { 
+                            if (share[uid] !== undefined) { 
+                                share[uid] += split; 
+                                bal[uid] -= split; 
+                            } 
+                        });
                     }
                 });
-                return { balances: bal, totalShare: share };
+                return { balances: bal, totalShare: share, publicFundBalance: -(bal[PUBLIC_FUND_ID] || 0) };
             }, [users, expenses]);
 
             const debts = useMemo(() => {
                 let debtors = []; let creditors = [];
-                Object.entries(stats.balances).forEach(([id, amt]) => {
+                const pfBalance = stats.balances[PUBLIC_FUND_ID] || 0;
+                const splitPf = pfBalance / users.length; 
+
+                const adjustedBalances = { ...stats.balances };
+                delete adjustedBalances[PUBLIC_FUND_ID]; 
+
+                users.forEach(u => {
+                    adjustedBalances[u.id] += splitPf;
+                });
+
+                Object.entries(adjustedBalances).forEach(([id, amt]) => {
                     const r = Math.round(amt);
                     if (r < -1) debtors.push({ id, amount: r });
                     if (r > 1) creditors.push({ id, amount: r });
                 });
                 debtors.sort((a,b) => a.amount - b.amount); creditors.sort((a,b) => b.amount - a.amount);
+                
                 const txs = []; let i=0; let j=0;
                 while(i < debtors.length && j < creditors.length) {
                     const d = debtors[i]; const c = creditors[j];
@@ -208,37 +237,163 @@
                 return txs;
             }, [stats.balances, users]);
 
-            // 過濾與我有關的 (包含我付錢代墊 OR 我有消費)
-            const myRelatedExpenses = useMemo(() => {
+            const myExpenses = useMemo(() => {
                 if (!viewingUserId) return [];
-                return expenses.filter(e => e.payer === viewingUserId || e.involved.includes(viewingUserId));
+                return expenses.filter(e => {
+                    return e.payer === viewingUserId || e.involved.includes(viewingUserId);
+                });
             }, [expenses, viewingUserId]);
+
+            const publicFundExpenses = useMemo(() => {
+                return expenses.filter(e => e.payer === PUBLIC_FUND_ID || e.splitMode === 'fund_topup');
+            }, [expenses]);
+
+            const getGroupedExpenses = (list) => {
+                const grouped = [];
+                let currentGroup = null;
+
+                list.forEach(item => {
+                    if (currentGroup) {
+                        const isSame = 
+                            item.date === currentGroup.date &&
+                            item.title === currentGroup.title &&
+                            item.inputAmount === currentGroup.inputAmount &&
+                            item.currency === currentGroup.currency &&
+                            item.splitMode === currentGroup.splitMode &&
+                            (item.splitMode === 'fund_topup' || item.splitMode === 'personal');
+                        
+                        if (isSame) {
+                            currentGroup.items.push(item);
+                            currentGroup.totalTwd += item.amountTwd;
+                            return;
+                        } else {
+                            grouped.push(currentGroup);
+                        }
+                    }
+
+                    currentGroup = {
+                        ...item,
+                        items: [item],
+                        totalTwd: item.amountTwd,
+                        isGroup: false
+                    };
+                });
+                
+                if (currentGroup) grouped.push(currentGroup);
+
+                return grouped.map(g => {
+                    if (g.items.length > 1) {
+                        g.isGroup = true;
+                        const names = g.items.map(i => i.payer === PUBLIC_FUND_ID ? '公費' : users.find(u=>u.id===i.payer)?.name).join('、');
+                        g.groupNames = names;
+                    }
+                    return g;
+                });
+            };
+
+            const togglePayer = (uid) => {
+                const currentPayers = formData.payers || [];
+                if (uid === PUBLIC_FUND_ID) {
+                    let newSplitMode = formData.splitMode;
+                    if (newSplitMode === 'fund_topup' || newSplitMode === 'personal') {
+                        newSplitMode = 'equal';
+                    }
+                    setFormData(prev => ({...prev, payers: [PUBLIC_FUND_ID], splitMode: newSplitMode, title: ''})); 
+                    return;
+                }
+
+                let newPayers = currentPayers.includes(PUBLIC_FUND_ID) ? [] : [...currentPayers];
+
+                if (newPayers.includes(uid)) {
+                    if (newPayers.length > 1) {
+                        newPayers = newPayers.filter(id => id !== uid);
+                    }
+                } else {
+                    newPayers.push(uid);
+                }
+                
+                let newSplitMode = formData.splitMode;
+                if (newPayers.length > 1) {
+                    if (newSplitMode === 'personal' || newSplitMode === 'custom') {
+                        newSplitMode = 'equal';
+                    }
+                }
+
+                setFormData(prev => ({...prev, payers: newPayers, splitMode: newSplitMode}));
+            };
 
             const saveExpense = async () => {
                 if (!formData.title) { showToast('請輸入項目'); return; }
                 if (!formData.inputAmount) { showToast('請輸入金額'); return; }
+                if (!formData.payers || formData.payers.length === 0) { showToast('請先確認付款人'); return; }
+                
                 const inputVal = parseFloat(formData.inputAmount);
                 const finalTwd = formData.currency === 'JPY' ? Math.round(inputVal * exchangeRate) : inputVal;
-                let dataPayload = { ...formData, amountTwd: finalTwd, updatedAt: new Date().toISOString() };
-                if (formData.splitMode === 'personal') {
-                    dataPayload.involved = [formData.payer];
-                } else if (formData.splitMode === 'custom') {
-                    const totalInput = Object.values(formData.customDetails).reduce((a,b)=>a+parseFloat(b||0),0);
-                    if (Math.abs(totalInput - inputVal) > 0.001) { 
-                        showToast(`分配不符！差額需為 0 (目前差 ${(inputVal - totalInput).toFixed(2)})`); 
-                        return; 
+                
+                const batch = db.batch();
+                const payers = formData.payers;
+                const isMultiPayer = payers.length > 1;
+
+                let amountPerRecord = finalTwd;
+                let inputAmountPerRecord = inputVal;
+
+                if (isMultiPayer && formData.amountType === 'total') {
+                    amountPerRecord = Math.round(finalTwd / payers.length);
+                    inputAmountPerRecord = inputVal / payers.length; 
+                }
+
+                payers.forEach(payerId => {
+                    const newDocRef = db.collection('expenses').doc(); 
+                    let currentDocRef;
+                    let isUpdate = false;
+                    if (editingExpenseId) {
+                         currentDocRef = db.collection('expenses').doc(editingExpenseId);
+                         isUpdate = true;
+                    } else {
+                         currentDocRef = newDocRef;
                     }
-                    if (formData.currency === 'JPY') {
-                        const converted = {};
-                        Object.entries(formData.customDetails).forEach(([id, val]) => converted[id] = Math.round(parseFloat(val) * exchangeRate));
-                        dataPayload.customDetails = converted;
-                        dataPayload.amountTwd = Object.values(converted).reduce((a, b) => a + b, 0);
-                    } else { dataPayload.amountTwd = inputVal; }
-                } else if (formData.involved.length === 0) { showToast('請選擇分攤者'); return; }
+                    let dataPayload = { 
+                        title: formData.title,
+                        currency: formData.currency,
+                        payer: payerId, 
+                        involved: formData.involved,
+                        splitMode: formData.splitMode,
+                        customDetails: formData.customDetails,
+                        date: formData.date,
+                        note: formData.note || '', 
+                        inputAmount: isMultiPayer && !isUpdate ? inputAmountPerRecord : inputVal, 
+                        amountTwd: isMultiPayer && !isUpdate ? amountPerRecord : finalTwd,
+                        updatedAt: new Date().toISOString()
+                    };
+                    if (!isUpdate) { dataPayload.createdAt = new Date().toISOString(); }
+                    if (formData.splitMode === 'personal') {
+                        dataPayload.involved = [payerId];
+                    } else if (formData.splitMode === 'equal' && isMultiPayer) {
+                        dataPayload.splitMode = 'personal'; 
+                        dataPayload.involved = [payerId];
+                    } else if (formData.splitMode === 'custom') {
+                        if (formData.currency === 'JPY') {
+                            const converted = {};
+                            Object.entries(formData.customDetails).forEach(([id, val]) => converted[id] = Math.round(parseFloat(val) * exchangeRate));
+                            dataPayload.customDetails = converted;
+                        }
+                    } 
+                    if (isUpdate) { batch.update(currentDocRef, dataPayload); } else { batch.set(currentDocRef, dataPayload); }
+                });
+
+                if (editingExpenseId && payers.length > 1) { showToast("編輯模式無法改為多人付款"); return; }
+                if (!editingExpenseId && payers.length === 1 && formData.splitMode === 'custom') {
+                    const totalInput = Object.values(formData.customDetails).reduce((a,b)=>a+parseFloat(b||0),0);
+                    if (Math.abs(totalInput - inputVal) > 0.001) { showToast(`分配不符！差額需為 0`); return; }
+                }
+                if (payers.includes(PUBLIC_FUND_ID) && formData.splitMode === 'fund_topup') { showToast("公費不能上繳給自己"); return; }
+                if (formData.involved.length === 0 && formData.splitMode !== 'fund_topup' && !(isMultiPayer && formData.splitMode === 'equal')) { showToast('請選擇分攤者'); return; }
+
                 try {
-                    if (editingExpenseId) await db.collection('expenses').doc(editingExpenseId).update(dataPayload);
-                    else await db.collection('expenses').add({ ...dataPayload, createdAt: new Date().toISOString() });
-                    setFormData({ title: '', inputAmount: '', currency: 'TWD', payer: viewingUserId || INITIAL_USERS[0].id, involved: users.map(u=>u.id), splitMode: 'equal', customDetails: {}, date: new Date().toISOString().split('T')[0] });
+                    await batch.commit();
+                    setFormData({ 
+                        title: '', inputAmount: '', currency: 'TWD', payers: [viewingUserId || INITIAL_USERS[0].id], involved: users.map(u=>u.id), splitMode: 'equal', customDetails: {}, date: new Date().toISOString().split('T')[0], amountType: 'total'
+                    });
                     setEditingExpenseId(null); setActiveTab('dashboard');
                     showToast('已記下！', 'success');
                 } catch (e) { showToast("儲存失敗"); }
@@ -256,7 +411,7 @@
                 if(!sheetUrl) { showToast('請先貼上 GAS 網址'); setActiveTab('settings'); return; }
                 setIsSyncing(true); setSyncStatus(null);
                 const payload = {
-                    expenses: expenses.map(e => ({ ...e, displayAmount: e.currency==='JPY'?`¥${e.inputAmount} (約$${e.amountTwd})`:`$${e.amountTwd}`, payerName: users.find(u=>u.id===e.payer)?.name, involvedNames: e.splitMode==='custom' ? Object.entries(e.customDetails).map(([id,v])=>`${users.find(u=>u.id===id)?.name}($${v})`).join(', ') : e.splitMode==='personal' ? '自己花' : e.involved.map(id=>users.find(u=>u.id===id)?.name).join(', ') })),
+                    expenses: expenses.map(e => ({ ...e, displayAmount: e.currency==='JPY'?`¥${e.inputAmount} (約$${e.amountTwd})`:`$${e.amountTwd}`, payerName: e.payer === PUBLIC_FUND_ID ? '公費' : users.find(u=>u.id===e.payer)?.name, involvedNames: e.splitMode==='fund_topup' ? '上繳公費' : e.splitMode==='custom' ? Object.entries(e.customDetails).map(([id,v])=>`${users.find(u=>u.id===id)?.name}($${v})`).join(', ') : e.splitMode==='personal' ? '自己花' : e.involved.map(id=>users.find(u=>u.id===id)?.name).join(', ') })),
                     debts, summary: users.map(u => ({ name: u.name, share: stats.totalShare[u.id]?.toFixed(0)||0 }))
                 };
                 try { await fetch(sheetUrl, { method: 'POST', mode: 'no-cors', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }); setTimeout(() => { setIsSyncing(false); setSyncStatus('success'); showToast('同步成功', 'success'); }, 1500); } catch (e) { setIsSyncing(false); setSyncStatus('error'); showToast('同步失敗'); }
@@ -264,68 +419,133 @@
 
             const TabButton = ({ id, label, icon: Icon }) => (
                 <button 
-                    onClick={() => { 
-                        setActiveTab(id); 
-                        if(id==='add'){ setEditingExpenseId(null); setFormData(prev => ({...prev, title: '', inputAmount: '', payer: viewingUserId || INITIAL_USERS[0].id})); } 
-                    }} 
+                    onClick={() => { setActiveTab(id); if(id==='add'){ setEditingExpenseId(null); setFormData(prev => ({...prev, title: '', inputAmount: '', payers: [viewingUserId || INITIAL_USERS[0].id]})); } }} 
                     className={`flex flex-col items-center justify-center py-3 px-1 flex-1 transition-colors ${activeTab === id ? 'text-cyan-600 border-t-2 border-cyan-600 bg-cyan-50' : 'text-slate-400 hover:text-cyan-500'}`}
                 >
                     <Icon size={20} className="mb-1" /><span className="text-xs font-medium">{label}</span>
                 </button>
             );
 
-            // 核心調整：個人帳本只顯示該名使用者真正消費的金額
-            const renderExpenseCard = (expense, isPersonal = false) => {
+            // 渲染明細卡片邏輯
+            const renderExpenseCard = (expense, isPersonal = false, isFundView = false) => {
                 let displayAmount = expense.amountTwd; 
+                let isTopup = expense.splitMode === 'fund_topup';
+                let isFundPay = expense.payer === PUBLIC_FUND_ID;
+                let payerName = expense.payer === PUBLIC_FUND_ID ? '公費' : users.find(u=>u.id===expense.payer)?.name;
                 
-                if (isPersonal && viewingUserId) {
-                    // 計算此使用者實際「消費」了多少
-                    if (expense.splitMode === 'custom') {
-                        displayAmount = parseFloat(expense.customDetails[viewingUserId] || 0);
-                    } else if (expense.involved.includes(viewingUserId)) {
-                        // 平分模式
-                        const count = expense.involved.length;
-                        displayAmount = Math.round(expense.amountTwd / count);
-                    } else {
-                        // 如果我不參與消費 (單純幫付錢)，這筆項目的消費值就是 0
-                        displayAmount = 0;
-                    }
+                let myShare = 0;
+                if (expense.splitMode === 'personal') {
+                    myShare = (expense.payer === viewingUserId) ? expense.amountTwd : 0;
+                } else if (expense.splitMode === 'custom') {
+                    myShare = parseFloat(expense.customDetails[viewingUserId] || 0);
+                } else if (expense.splitMode === 'fund_topup') {
+                    myShare = 0; 
+                } else if (expense.involved.includes(viewingUserId)) {
+                    const count = expense.involved.length;
+                    myShare = Math.round(expense.amountTwd / count);
+                }
+
+                let amountToShow = isPersonal ? myShare : expense.amountTwd;
+                let isPurePrepay = isPersonal && (expense.payer === viewingUserId) && (isTopup || myShare === 0);
+
+                if (isPurePrepay) amountToShow = expense.amountTwd;
+                if (isPersonal && !isPurePrepay && myShare === 0 && expense.payer !== viewingUserId) return null; 
+
+                const getTagStyle = () => {
+                    if (isTopup) return 'bg-amber-100 text-amber-700'; // 上繳為黃色
+                    if (isFundPay) return 'bg-blue-100 text-blue-700';
+                    if (expense.splitMode === 'personal') return 'bg-purple-100 text-purple-700';
+                    return 'bg-orange-100 text-orange-700';
+                };
+
+                const getTagText = () => {
+                    if (isTopup) return '上繳';
+                    if (isFundPay) return '公費付';
+                    if (expense.splitMode === 'personal') return '自己付';
+                    return `${payerName}先付`;
+                };
+                
+                const isFundDetailView = isFundView;
+
+                if (expense.isGroup && !isPersonal) {
+                    return (
+                        <div key={expense.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 relative mb-2">
+                             <div className="flex justify-between items-start mb-1">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <h4 className="font-bold text-slate-800">{expense.title}</h4>
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${getTagStyle()}`}>
+                                            {getTagText()}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-slate-400">{new Date(expense.date).toLocaleDateString()}</p>
+                                </div>
+                                <div className="text-right">
+                                    <div className={`font-bold text-slate-900`}>
+                                        {isFundDetailView && isTopup && '+'}
+                                        {isFundDetailView && isFundPay && '-'}
+                                        ${expense.totalTwd.toLocaleString()}
+                                    </div>
+                                    <p className="text-[10px] text-slate-400">共 {expense.items.length} 人 (每人 ${expense.amountTwd})</p>
+                                </div>
+                             </div>
+                             <div className="text-xs text-slate-500 mt-1">
+                                {expense.groupNames}
+                             </div>
+                             {expense.note && <div className="mt-2 text-xs text-slate-400 bg-slate-50 p-2 rounded">📝 {expense.note}</div>}
+                        </div>
+                    );
                 }
 
                 return (
-                    <div key={expense.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 hover:border-cyan-200 transition-colors relative">
+                    <div key={expense.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 relative mb-2">
                         <div className="flex justify-between items-start mb-2">
                             <div className="flex-1 pr-12">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap mb-1">
                                     <h4 className="font-bold text-slate-800">{expense.title}</h4>
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${expense.splitMode === 'personal' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
-                                        {expense.splitMode === 'personal' ? '個人' : `${users.find(u=>u.id===expense.payer)?.name}先付`}
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${getTagStyle()}`}>
+                                        {getTagText()}
                                     </span>
                                 </div>
-                                <p className="text-xs text-slate-400 mt-1">{new Date(expense.date).toLocaleDateString()}</p>
+                                <p className="text-xs text-slate-400">{new Date(expense.date).toLocaleDateString()}</p>
                             </div>
                             <div className="text-right">
-                                <div className="font-bold text-slate-900 flex items-center justify-end gap-1">
-                                    {!isPersonal && expense.currency === 'JPY' && <span className="text-xs text-slate-400 font-normal">¥{expense.inputAmount} ≈</span>}
-                                    ${displayAmount.toLocaleString()}
+                                <div className={`font-bold flex flex-col items-end gap-0.5 text-slate-900 ${isPurePrepay ? 'opacity-50' : ''}`}>
+                                    <div className="flex items-center gap-1">
+                                        {isPurePrepay && '('}
+                                        {isFundDetailView && isTopup && '+'}
+                                        {isFundDetailView && isFundPay && '-'}
+                                        {!isPersonal && expense.currency === 'JPY' && <span className="text-xs text-slate-400 font-normal">¥{expense.inputAmount} ≈</span>}
+                                        ${amountToShow.toLocaleString()}
+                                        {isPurePrepay && ')'}
+                                    </div>
+                                    {isPurePrepay && <p className="text-[10px] text-slate-400 font-medium">不計入消費</p>}
                                 </div>
-                                {isPersonal && <p className={`text-[10px] font-medium ${displayAmount === 0 ? 'text-slate-300' : 'text-cyan-500'}`}>{displayAmount === 0 ? '單純代墊' : '個人費用'}</p>}
                             </div>
                         </div>
                         <div className="flex justify-between items-end">
-                            <div className="text-xs text-slate-500 bg-slate-50/80 p-2 rounded-lg mt-1 flex-1 mr-4">
-                                {expense.splitMode === 'personal' ? `🛍️ ${users.find(u=>u.id===expense.payer)?.name} 自己花` :
+                            <div className="text-xs text-slate-500 mt-1 flex-1 mr-4">
+                                {isTopup ? `${payerName} 儲值進公費` :
+                                 expense.splitMode === 'personal' ? `${payerName} 自己花` :
                                  expense.splitMode === 'custom' ? Object.entries(expense.customDetails).map(([uid, amt]) => `${users.find(u=>u.id===uid)?.name} $${amt}`).join('、') : 
                                  `由 ${expense.involved.map(id=>users.find(u=>u.id===id)?.name).join('、')} 平分`}
                             </div>
-                            <div className="flex gap-2 relative z-[60]">
-                                <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setFormData({...expense}); setEditingExpenseId(expense.id); setActiveTab('add'); }} className="p-2 text-slate-400 hover:text-cyan-600 bg-slate-50 rounded-full active:scale-90 shadow-sm border border-slate-100"><Edit2 size={16}/></button>
-                                <button onClick={async (e) => { e.preventDefault(); e.stopPropagation(); if(confirm('確定要刪除這筆紀錄嗎？')){ try { await db.collection('expenses').doc(expense.id).delete(); showToast('已刪除', 'success'); } catch(err) { showToast('刪除失敗'); } } }} className="p-2 text-slate-400 hover:text-red-500 bg-slate-50 rounded-full active:scale-90 shadow-sm border border-slate-100"><Trash2 size={16}/></button>
-                            </div>
+                            {(!isPersonal || expense.payer === viewingUserId) && !expense.isGroup && (
+                                <div className="flex gap-2 relative z-10 opacity-50 hover:opacity-100 transition-opacity">
+                                    <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setFormData({...expense, payers: [expense.payer]}); setEditingExpenseId(expense.id); setActiveTab('add'); }} className="p-1.5 text-slate-400 hover:text-cyan-600"><Edit2 size={14}/></button>
+                                    <button onClick={async (e) => { e.preventDefault(); e.stopPropagation(); if(confirm('確定要刪除？')){ try { await db.collection('expenses').doc(expense.id).delete(); showToast('已刪除', 'success'); } catch(err) { showToast('刪除失敗'); } } }} className="p-1.5 text-slate-400 hover:text-red-500"><Trash2 size={14}/></button>
+                                </div>
+                            )}
                         </div>
+                        {expense.note && <div className="mt-2 text-xs text-slate-400 bg-slate-50 p-2 rounded">📝 {expense.note}</div>}
                     </div>
                 );
             };
+
+            const statsView = useMemo(() => stats, [stats]);
+            const debtsView = useMemo(() => debts, [debts]);
+            const groupedExpenses = useMemo(() => getGroupedExpenses(expenses), [expenses]);
+            const groupedPublicFund = useMemo(() => getGroupedExpenses(publicFundExpenses), [publicFundExpenses]);
 
             return (
                 <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col pb-[calc(env(safe-area-inset-bottom)+80px)]">
@@ -348,6 +568,37 @@
                     <main className="max-w-md mx-auto p-4 space-y-5 flex-1 w-full">
                         {activeTab === 'dashboard' && (
                             <div className="space-y-4 animate-fade-in">
+                                {/* 公費總覽卡片 */}
+                                <div className="bg-gradient-to-br from-cyan-400/80 to-blue-500/80 backdrop-blur-md p-4 rounded-2xl shadow-lg text-white border border-white/20">
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <p className="text-xs font-medium opacity-80 mb-1">公費餘額</p>
+                                            <p className="text-2xl font-bold font-mono">${(Math.abs(statsView.publicFundBalance)).toLocaleString()}</p>
+                                        </div>
+                                        <button onClick={() => setIsFundDetailsOpen(!isFundDetailsOpen)} className="bg-white/20 p-2 rounded-lg transition-transform active:scale-95 shadow-sm">
+                                            {isFundDetailsOpen ? <ChevronUp size={20}/> : <ChevronDown size={20}/>}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* 核心更新：公費明細框框化 (仿造帳本格式) */}
+                                {isFundDetailsOpen && (
+                                    <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden animate-fade-in">
+                                        <div className="px-5 py-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
+                                            <div className="flex items-center gap-2">
+                                                <h3 className="font-bold text-slate-700 flex items-center gap-2"><Wallet className="w-4 h-4 text-slate-500" />公費收支明細</h3>
+                                                <span className="text-[10px] text-slate-400 bg-white px-2 py-0.5 rounded-full border border-slate-200">歷史紀錄</span>
+                                            </div>
+                                        </div>
+                                        <div className="p-4 space-y-1 bg-white">
+                                            {groupedPublicFund.length === 0 ? 
+                                                <div className="text-center py-6 text-slate-400 text-sm italic">目前尚無公費紀錄</div> : 
+                                                groupedPublicFund.map(e => renderExpenseCard(e, false, true))
+                                            }
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="bg-white p-4 rounded-2xl border border-cyan-100 shadow-sm flex flex-col gap-2">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] ml-1">你是誰？</label>
                                     <div className="relative">
@@ -367,11 +618,11 @@
                                         <button onClick={() => setIsPersonalOpen(!isPersonalOpen)} className="w-full px-5 py-4 border-b border-cyan-50 bg-cyan-50 flex justify-between items-center transition-colors">
                                             <div className="flex flex-col items-start text-left">
                                                 <h3 className="font-bold text-cyan-800 flex items-center gap-2"><PieChart className="w-4 h-4 text-cyan-600" />{users.find(u=>u.id===viewingUserId)?.name}的帳本</h3>
-                                                <span className="text-xs text-cyan-600">總消費價值：<span className="font-bold text-lg ml-1">${(stats.totalShare[viewingUserId]||0).toLocaleString()}</span></span>
+                                                <span className="text-xs text-cyan-600">總消費價值：<span className="font-bold text-lg ml-1">${(statsView.totalShare[viewingUserId]||0).toLocaleString()}</span></span>
                                             </div>
                                             {isPersonalOpen ? <ChevronUp className="w-5 h-5 text-cyan-600" /> : <ChevronDown className="w-5 h-5 text-cyan-600" />}
                                         </button>
-                                        {isPersonalOpen && <div className="p-4 space-y-3 bg-white border-t border-cyan-100">{myRelatedExpenses.length === 0 ? <div className="text-center text-slate-400 py-4 text-sm">目前跟你沒關係 🎉</div> : myRelatedExpenses.map(e => renderExpenseCard(e, true))}</div>}
+                                        {isPersonalOpen && <div className="p-4 space-y-1 bg-white border-t border-cyan-100">{myExpenses.length === 0 ? <div className="text-center text-slate-400 py-4 text-sm italic">目前跟你沒關係 🎉</div> : myExpenses.map(e => renderExpenseCard(e, true))}</div>}
                                     </div>
                                 )}
 
@@ -380,7 +631,7 @@
                                         <div className="flex items-center gap-2"><h3 className="font-bold text-slate-700 flex items-center gap-2"><LayoutDashboard className="w-4 h-4 text-slate-500" />總帳本</h3><span className="text-[10px] text-slate-400 bg-white px-2 py-0.5 rounded-full border border-slate-200">所有明細</span></div>
                                         {isGeneralOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
                                     </button>
-                                    {isGeneralOpen && <div className="p-4 space-y-3 bg-slate-50/30 border-t border-slate-100">{expenses.length === 0 ? <div className="text-center text-slate-400 py-4 text-sm">還沒有紀錄 🍃</div> : expenses.map(e => renderExpenseCard(e, false))}</div>}
+                                    {isGeneralOpen && <div className="p-4 space-y-1 bg-slate-50/30 border-t border-slate-100">{groupedExpenses.length === 0 ? <div className="text-center text-slate-400 py-4 text-sm italic">還沒有紀錄 🍃</div> : groupedExpenses.map(e => renderExpenseCard(e, false))}</div>}
                                 </div>
 
                                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -388,20 +639,55 @@
                                         <div className="flex items-center gap-2"><h3 className="font-bold text-slate-700 flex items-center gap-2"><RefreshCw className="w-4 h-4 text-slate-500" />結算建議</h3><span className="text-[10px] text-slate-400 bg-white px-2 py-0.5 rounded-full border border-slate-200">收支計算</span></div>
                                         {isDebtsOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
                                     </button>
-                                    {isDebtsOpen && <div className="p-5 space-y-3 bg-white border-t border-cyan-50">{debts.length === 0 ? <div className="text-center text-slate-400 py-4 text-sm">目前無欠款 ✨</div> : debts.map((d, i) => <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100"><div className="flex items-center gap-3 text-sm font-medium"><span className="text-slate-700">{d.from}</span><ArrowRight className="w-3 h-3 text-slate-400" /><span className="text-slate-700">{d.to}</span></div><span className="font-mono font-bold text-cyan-600">${d.amount}</span></div>)}</div>}
+                                    {isDebtsOpen && <div className="p-5 space-y-3 bg-white border-t border-cyan-50">
+                                            <div className="bg-blue-50 border border-blue-100 p-3 rounded-lg text-sm text-blue-800 mb-4">
+                                                <strong className="block mb-1">💡 第一步：公費處理</strong>
+                                                {statsView.publicFundBalance > 0 ? 
+                                                    `公費剩餘 $${statsView.publicFundBalance.toLocaleString()}。請平分退還每人 $${Math.round(statsView.publicFundBalance/5)}，或由一人全收抵債。` :
+                                                 statsView.publicFundBalance < 0 ?
+                                                    `公費透支 $${Math.abs(statsView.publicFundBalance).toLocaleString()}。請每人再拿出 $${Math.round(Math.abs(statsView.publicFundBalance)/5)} 補齊。` :
+                                                    "公費剛好用完，完美！"
+                                                }
+                                                <div className="text-xs opacity-70 mt-1">處理完公費後，再依照下方建議互轉結清。</div>
+                                            </div>
+
+                                            {debtsView.length === 0 ? <div className="text-center text-slate-400 py-4 text-sm">目前無欠款 ✨</div> : debtsView.map((d, i) => <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100"><div className="flex items-center gap-3 text-sm font-medium"><span className="text-slate-700">{d.from}</span><ArrowRight className="w-3 h-3 text-slate-400" /><span className="text-slate-700">{d.to}</span></div><span className="font-mono font-bold text-cyan-600">${d.amount}</span></div>)}</div>}
                                 </div>
                             </div>
                         )}
 
                         {activeTab === 'add' && (
-                            <div className="bg-white p-6 rounded-2xl shadow-lg border border-cyan-100 animate-fade-in-up shrink-0">
-                                <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">{editingExpenseId ? <Edit2 className="w-6 h-6 text-cyan-500" /> : <Plus className="w-6 h-6 text-cyan-500" />}{editingExpenseId ? '修改支出' : '新增一筆'}</h2>
+                            <div className="bg-white p-6 rounded-2xl shadow-lg border border-cyan-100 animate-fade-in-up">
+                                <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">{editingExpenseId ? <Edit2 className="w-6 h-6 text-cyan-500" /> : <Plus className="w-6 h-6 text-cyan-500" />}{editingExpenseId ? '修改支出' : '新增支出'}</h2>
                                 <div className="space-y-5">
                                     <div><label className="block text-sm font-medium text-slate-500 mb-1">日期</label><input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="input-standard p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 font-medium outline-none" /></div>
-                                    <div><label className="block text-sm font-medium text-slate-500 mb-1">項目</label><input type="text" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="input-standard p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" /></div>
+                                    <div><label className="block text-sm font-medium text-slate-500 mb-1">項目</label><input type="text" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="input-standard p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" disabled={formData.splitMode === 'fund_topup'} placeholder={formData.splitMode === 'fund_topup' ? '上繳公費' : ''}/></div>
                                     <div><label className="block text-sm font-medium text-slate-500 mb-1">金額</label><div className="flex gap-2"><div className="relative flex-1"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">{formData.currency === 'JPY' ? '¥' : '$'}</span><input type="number" value={formData.inputAmount} onChange={e => setFormData({...formData, inputAmount: e.target.value})} placeholder="0" className="w-full pl-8 p-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-lg outline-none" /></div><div className="flex bg-slate-100 p-1 rounded-xl"><button onClick={() => setFormData({...formData, currency: 'TWD'})} className={`px-3 text-xs font-bold rounded-lg transition-all ${formData.currency === 'TWD' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>TWD</button><button onClick={() => setFormData({...formData, currency: 'JPY'})} className={`px-3 text-xs font-bold rounded-lg transition-all ${formData.currency === 'JPY' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>JPY</button></div></div>{formData.currency === 'JPY' && formData.inputAmount && <p className="text-xs text-cyan-600 mt-2 text-right">× {exchangeRate} ≈ <span className="font-bold text-sm">TWD ${Math.round(formData.inputAmount * exchangeRate)}</span></p>}</div>
-                                    <div><label className="block text-sm font-medium text-slate-500 mb-2">誰先付錢？</label><div className="flex flex-wrap gap-2">{users.map(u => <button key={u.id} onClick={() => setFormData({...formData, payer: u.id})} className={`px-3 py-2 rounded-full text-sm transition-all ${formData.payer === u.id ? 'bg-cyan-500 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{u.name}</button>)}</div></div>
-                                    <div className="bg-slate-50 p-1 rounded-xl flex"><button onClick={() => setFormData({...formData, splitMode: 'equal'})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'equal' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>平分</button><button onClick={() => setFormData({...formData, splitMode: 'custom'})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'custom' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>自訂</button><button onClick={() => setFormData({...formData, splitMode: 'personal'})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'personal' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>自己花</button></div>
+                                    
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-500 mb-2">誰付錢？</label>
+                                        <div className="flex flex-wrap gap-2">
+                                            <button onClick={() => togglePayer(PUBLIC_FUND_ID)} className={`px-3 py-2 rounded-full text-sm font-bold transition-all flex items-center gap-1 ${formData.payers && formData.payers.includes(PUBLIC_FUND_ID) ? 'bg-blue-500 text-white shadow-md' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}><Icons.Wallet size={14} className="mr-1"/>公費</button>
+                                            {users.map(u => (
+                                                <button key={u.id} onClick={() => togglePayer(u.id)} className={`px-3 py-2 rounded-full text-sm transition-all ${formData.payers && formData.payers.includes(u.id) ? 'bg-cyan-500 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{u.name}</button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-slate-50 p-1 rounded-xl flex overflow-x-auto">
+                                        <button onClick={() => setFormData({...formData, splitMode: 'equal'})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all whitespace-nowrap ${formData.splitMode === 'equal' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>{isMultiPayer ? '幫忙記帳' : '平分'}</button>
+                                        {!isMultiPayer && (<button onClick={() => setFormData({...formData, splitMode: 'custom'})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all whitespace-nowrap ${formData.splitMode === 'custom' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>自訂</button>)}
+                                        {!isMultiPayer && !isFundPayer && (<button onClick={() => setFormData({...formData, splitMode: 'personal'})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all whitespace-nowrap ${formData.splitMode === 'personal' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>自己花</button>)}
+                                        {!isFundPayer && (<button onClick={() => setFormData({...formData, splitMode: 'fund_topup', title: '上繳公費'})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all whitespace-nowrap ${formData.splitMode === 'fund_topup' ? 'bg-amber-100 text-amber-600 shadow' : 'text-slate-400'}`}>上繳</button>)}
+                                    </div>
+
+                                    {isMultiPayer && (formData.splitMode === 'equal' || formData.splitMode === 'fund_topup') && (
+                                        <div className="flex items-center justify-between bg-slate-100 p-1 rounded-lg">
+                                            <button onClick={() => setFormData(p => ({...p, amountType: 'total'}))} className={`flex-1 py-1 text-xs rounded transition-all ${formData.amountType === 'total' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}>總額 ({formData.inputAmount || 0})</button>
+                                            <button onClick={() => setFormData(p => ({...p, amountType: 'per_person'}))} className={`flex-1 py-1 text-xs rounded transition-all ${formData.amountType === 'per_person' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}>每人 ({formData.inputAmount || 0})</button>
+                                        </div>
+                                    )}
+
                                     {formData.splitMode === 'custom' ? (
                                         <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
                                             <div className="flex justify-between items-center mb-1"><label className="text-sm font-medium text-slate-600">分配 ({formData.currency})</label>{(() => { const target = parseFloat(formData.inputAmount || 0); const sum = Object.values(formData.customDetails).reduce((a,b)=>a+parseFloat(b||0),0); const diff = (target - sum).toFixed(2); return <span className={`text-xs font-bold ${Math.abs(diff) > 0.001 ? 'text-red-500' : 'text-green-600'}`}>剩餘: {diff}</span>; })()}</div>
@@ -409,9 +695,17 @@
                                         </div>
                                     ) : formData.splitMode === 'personal' ? (
                                         <div className="text-center text-sm text-slate-500 py-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">這筆錢將完全歸在付款人身上。</div>
+                                    ) : formData.splitMode === 'fund_topup' ? (
+                                        <div className="text-center text-sm text-slate-500 py-4 bg-amber-50 rounded-xl border border-dashed border-amber-200 text-amber-700">{formData.payers.length > 1 ? `將為 ${formData.payers.length} 位成員各建立一筆上繳紀錄。` : '這筆錢將存入公費，不計入個人消費。'}</div>
                                     ) : (
-                                        <div className="flex flex-wrap gap-2">{users.map(u => <button key={u.id} onClick={() => toggleInvolved(u.id)} className={`px-3 py-2 rounded-full text-sm border transition-all ${formData.involved.includes(u.id) ? 'border-cyan-400 bg-cyan-50 text-cyan-700' : 'border-slate-200 bg-transparent text-slate-400 font-normal'}`}>{u.name}</button>)}</div>
+                                        <div className="flex flex-wrap gap-2">{isMultiPayer ? (<div className="text-xs text-slate-500 w-full mb-2 font-bold">已自動對應：{formData.payers.map(pid => users.find(u=>u.id===pid)?.name).join('、')}</div>) : (users.map(u => <button key={u.id} onClick={() => toggleInvolved(u.id)} className={`px-3 py-2 rounded-full text-sm border transition-all ${formData.involved.includes(u.id) ? 'border-cyan-400 bg-cyan-50 text-cyan-700' : 'border-slate-200 bg-transparent text-slate-400 font-normal'}`}>{u.name}</button>))}</div>
                                     )}
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-500 mb-1">備註</label>
+                                        <input type="text" value={formData.note || ''} onChange={e => setFormData({...formData, note: e.target.value})} className="input-standard p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="" />
+                                    </div>
+
                                     <div className="pt-4"><button onClick={saveExpense} className="w-full py-4 bg-cyan-500 text-white rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-all flex justify-center items-center gap-2"><Save className="w-5 h-5" />{editingExpenseId ? '儲存修改' : '記下來'}</button></div>
                                 </div>
                             </div>
@@ -424,14 +718,12 @@
                                     <div className="flex flex-col gap-1">
                                         <h3 className="font-bold text-slate-700 flex items-center gap-2 text-sm"><FileSpreadsheet className="w-4 h-4 text-slate-400" />Google Sheet 連動</h3>
                                         <input type="text" value={sheetUrl} onChange={e => updateGasUrl(e.target.value)} placeholder="貼上 GAS 網址" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono outline-none" />
-                                        <div className="mt-1">
-                                            <a href="https://docs.google.com/spreadsheets/d/19nQPjoqHKST3qQothDmyoKM01EDIAPiCUeFHmUkV21E/edit?gid=2086443444#gid=2086443444" target="_blank" className="text-slate-900 text-[10px] underline underline-offset-4 decoration-slate-300">
-                                                沖繩平安歐 🚗 🚗 🚗
-                                            </a>
+                                        <div className="mt-1 text-left">
+                                            <a href="https://docs.google.com/spreadsheets/d/19nQPjoqHKST3qQothDmyoKM01EDIAPiCUeFHmUkV21E/edit?gid=2086443444#gid=2086443444" target="_blank" className="text-slate-900 text-[10px] underline underline-offset-4 decoration-slate-300">沖繩平安歐</a>
                                         </div>
                                     </div>
                                 </div>
-                                <div className="text-center text-[10px] text-slate-300 pb-8">v2.5 - 消費開銷精準定義版</div>
+                                <div className="text-center text-[10px] text-slate-300 pb-8">v3.6 - 公費明細框框化</div>
                             </div>
                         )}
                     </main>
