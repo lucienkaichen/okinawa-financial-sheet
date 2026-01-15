@@ -15,22 +15,12 @@
     <!-- 3. Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- 4. Firebase SDK (Compat) -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-
     <style>
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes slideDown { from { transform: translateY(-100%); } to { transform: translateY(0); } }
-        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         .animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
-        .animate-slide-down { animation: slideDown 0.3s ease-out forwards; }
-        .animate-fade-in-up { animation: slideUp 0.3s ease-out forwards; }
         
         body { background-color: #f8fafc; -webkit-tap-highlight-color: transparent; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
         .input-standard { width: 100% !important; display: block; appearance: none; -webkit-appearance: none; box-sizing: border-box; }
-        
         .custom-select {
             background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
             background-position: right 0.75rem center;
@@ -38,30 +28,33 @@
             background-size: 1.2em 1.2em;
             padding-right: 2.5rem;
         }
-
         #loading-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; background: #f8fafc; color: #64748b; z-index: 1000; flex-direction: column; text-align: center; }
-        
-        /* Custom Scrollbar */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 </head>
 <body>
     <div id="root"></div>
     <div id="loading-screen">
         <p class="text-xl font-bold mb-2">正在載入沖繩之旅...🌊</p>
-        <p class="text-xs">四年啦四年！？</p>
+        <p class="text-xs">呼吸一下，馬上就好...</p>
     </div>
 
-    <script type="text/babel">
-        const removeLoading = () => {
-            const el = document.getElementById('loading-screen');
-            if(el) el.style.display = 'none';
-        };
+    <!-- 
+      ========================================
+      Firebase 設定區塊 (請修改這裡！) 
+      ========================================
+    -->
+    <script type="module">
+        // 這裡改用標準的 Firebase CDN，可以在任何地方執行
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-firestore.js";
 
-        const firebaseConfig = {
+        // ▼▼▼▼▼▼▼▼ 請將下方內容替換成你自己 Firebase 專案的設定 ▼▼▼▼▼▼▼▼
+        // 你可以在 Firebase Console -> Project Settings -> General -> Your apps 找到
+       const firebaseConfig = {
             apiKey: "AIzaSyA5MRIK9yxJ_XNRIfgnLdXjRBoLFQWr8o0",
             authDomain: "okinawa-financial-sheet.firebaseapp.com",
             projectId: "okinawa-financial-sheet",
@@ -70,14 +63,49 @@
             appId: "1:1032242385806:web:7fa5753a22d4e45f934adf",
             measurementId: "G-33EEBGS9F3"
         };
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
-        if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
-        const db = firebase.firestore();
-        const auth = firebase.auth();
+        // 初始化 Firebase
+        let app, auth, db;
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            console.log("Firebase initialized successfully");
+        } catch (e) {
+            console.error("Firebase initialization failed. Did you update the config?", e);
+        }
 
+        // 將這些功能掛載到 window，讓 React 可以讀取
+        // 為了相容原本的寫法，我們保持 window.firebaseModules 的名稱，但內容換成標準版
+        window.firebaseModules = {
+            auth, 
+            db,
+            signInAnonymously, 
+            onAuthStateChanged,
+            collection, 
+            doc, 
+            setDoc, 
+            updateDoc, 
+            deleteDoc, 
+            onSnapshot, 
+            writeBatch
+        };
+    </script>
+
+    <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
+        
+        // 為了讓資料結構單純一點，我們這裡設定一個固定的 App ID
+        // 這樣你的資料庫路徑就會是： artifacts/okinawa_2025/public/data/expenses
+        const APP_ID = "okinawa_2025"; 
 
-        // --- Icon Components ---
+        const removeLoading = () => {
+            const el = document.getElementById('loading-screen');
+            if(el) el.style.display = 'none';
+        };
+
+        // --- Icons ---
         const IconBase = ({ children, size = 24, className = "" }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
         );
@@ -87,7 +115,7 @@
             Users: (p) => <IconBase {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></IconBase>,
             LayoutDashboard: (p) => <IconBase {...p}><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></IconBase>,
             Edit2: (p) => <IconBase {...p}><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></IconBase>,
-            Settings: (p) => <IconBase {...p}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></IconBase>,
+            Settings: (p) => <IconBase {...p}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.39a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></IconBase>,
             Globe: (p) => <IconBase {...p}><circle cx="12" cy="12" r="10"/><line x1="2" x2="22" y1="12" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10z"/></IconBase>,
             RefreshCw: (p) => <IconBase {...p}><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></IconBase>,
             CheckCircle: (p) => <IconBase {...p}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></IconBase>,
@@ -104,13 +132,14 @@
             Wallet: (p) => <IconBase {...p}><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></IconBase>,
             ArrowLeftRight: (p) => <IconBase {...p}><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></IconBase>
         };
-        const { Plus, Trash2, Users, LayoutDashboard, Edit2, Settings, Globe, RefreshCw, CheckCircle, FileSpreadsheet, HelpCircle, X, PieChart, ArrowRight, ChevronDown, ChevronUp, Save, User, Alert, Wallet, ArrowLeftRight } = Icons;
+        const { Plus, Trash2, LayoutDashboard, Edit2, Settings, Globe, RefreshCw, CheckCircle, FileSpreadsheet, X, PieChart, ArrowRight, ChevronDown, ChevronUp, Save, Wallet, ArrowLeftRight, Alert } = Icons;
 
         const INITIAL_USERS = [ { id: '1', name: '陳浚愷' }, { id: '2', name: '許瀅珊' }, { id: '3', name: '黃韻庭' }, { id: '4', name: '楊予瑄' }, { id: '5', name: '侯宇薪' } ];
         const PUBLIC_FUND_ID = 'public_fund'; 
 
         function App() {
-            const [users, setUsers] = useState(INITIAL_USERS);
+            const [fb, setFb] = useState(null);
+            const [users] = useState(INITIAL_USERS);
             const [expenses, setExpenses] = useState([]); 
             const [activeTab, setActiveTab] = useState('dashboard');
             const [currentUser, setCurrentUser] = useState(null);
@@ -118,18 +147,22 @@
             const [exchangeRate, setExchangeRate] = useState(0.22);
             const [displayCurrency, setDisplayCurrency] = useState('TWD'); 
             
-            const [isGeneralOpen, setIsGeneralOpen] = useState(false);
+            const [isGeneralOpen, setIsGeneralOpen] = useState(true);
             const [isPersonalOpen, setIsPersonalOpen] = useState(false); 
-            const [isDebtsOpen, setIsDebtsOpen] = useState(false);
+            const [isDebtsOpen, setIsDebtsOpen] = useState(true);
             const [isFundDetailsOpen, setIsFundDetailsOpen] = useState(false);
             
             const [editingExpenseId, setEditingExpenseId] = useState(null);
+            const [editingGroupIds, setEditingGroupIds] = useState(null); 
             const [toast, setToast] = useState({ show: false, msg: '', type: 'info' });
             const [confirmDelete, setConfirmDelete] = useState({ show: false, expense: null });
+            const [isSaving, setIsSaving] = useState(false);
 
             const [formData, setFormData] = useState({
-                title: '', inputAmount: '', currency: 'TWD', payers: [INITIAL_USERS[0].id], involved: INITIAL_USERS.map(u=>u.id), splitMode: 'equal', customDetails: {}, date: new Date().toISOString().split('T')[0], amountType: 'total'
+                title: '', inputAmount: '', currency: 'TWD', payers: [INITIAL_USERS[0].id], involved: INITIAL_USERS.map(u=>u.id), splitMode: 'equal', customDetails: {}, date: new Date().toISOString().split('T')[0], amountType: 'per_person'
             });
+            const [memoizedTitle, setMemoizedTitle] = useState('');
+
             const [sheetUrl, setSheetUrl] = useState(''); 
             const [isSyncing, setIsSyncing] = useState(false);
             const [syncStatus, setSyncStatus] = useState(null); 
@@ -155,43 +188,87 @@
                 }
             };
 
-            // 專門用於顯示公費日幣（不經過匯率轉換）的 Helper
             const formatPublicFundJPY = (amountJpy, amountTwd) => {
-                // 如果顯示模式是 JPY，直接用累加的 JPY 餘額 (加上少量的 TWD 餘額換算)
                 if (displayCurrency === 'JPY') {
                     const totalJpy = amountJpy + (amountTwd / exchangeRate);
                     const isNegative = totalJpy < 0;
                     return `${isNegative ? '-' : ''}¥${Math.round(Math.abs(totalJpy)).toLocaleString()}`;
                 } else {
-                    // 如果顯示模式是 TWD，則把 JPY 換算成 TWD 加上原本的 TWD
                     const totalTwd = (amountJpy * exchangeRate) + amountTwd;
                     const isNegative = totalTwd < 0;
                     return `${isNegative ? '-' : ''}$${Math.round(Math.abs(totalTwd)).toLocaleString()}`;
                 }
             };
+            
+            const getDisplayAmount = (itemAmountTwd, itemInputAmount, itemCurrency) => {
+                const isNegative = itemAmountTwd < 0;
+                
+                if (displayCurrency === itemCurrency) {
+                    if (itemInputAmount !== null && itemInputAmount !== undefined && !isNaN(itemInputAmount)) {
+                        return `${isNegative ? '-' : ''}${itemCurrency === 'JPY' ? '¥' : '$'}${Math.round(parseFloat(itemInputAmount)).toLocaleString()}`;
+                    } else {
+                        let val = Math.abs(itemAmountTwd);
+                        if (itemCurrency === 'JPY') {
+                            val = val / exchangeRate;
+                            return `${isNegative ? '-' : ''}¥${Math.round(val).toLocaleString()}`;
+                        } else {
+                            return `${isNegative ? '-' : ''}$${Math.round(val).toLocaleString()}`;
+                        }
+                    }
+                } else {
+                    return formatMoney(itemAmountTwd);
+                }
+            };
 
+            // Init Firebase Modules Check
             useEffect(() => {
-                removeLoading();
-                auth.signInAnonymously().catch(console.error);
-                return auth.onAuthStateChanged(setCurrentUser);
+                const check = setInterval(() => {
+                    if (window.firebaseModules && window.firebaseModules.auth) {
+                        clearInterval(check);
+                        setFb(window.firebaseModules);
+                        
+                        // Start Auth
+                        const { auth, signInAnonymously, onAuthStateChanged } = window.firebaseModules;
+                        signInAnonymously(auth).catch(e => {
+                            console.error("Auth Error:", e);
+                            showToast("登入失敗，請檢查 Firebase Auth 設定", "error");
+                        });
+                        
+                        onAuthStateChanged(auth, (user) => {
+                            if(user) setCurrentUser(user);
+                            removeLoading();
+                        });
+                    }
+                }, 100);
+                return () => clearInterval(check);
             }, []);
 
+            // Data Listener
             useEffect(() => {
-                if (!currentUser) return;
-                const unsubExpenses = db.collection('expenses')
-                    .onSnapshot((snapshot) => {
-                        let newExpenses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                        newExpenses.sort((a, b) => {
-                            const dateA = a.date || ''; const dateB = b.date || '';
-                            if (dateB !== dateA) return dateB.localeCompare(dateA);
-                            return (b.createdAt || '').localeCompare(a.createdAt || '');
-                        });
-                        setExpenses(newExpenses);
-                    }, (err) => showToast("資料庫連線失敗"));
-                const unsubSettings = db.collection('appSettings').doc('gasConfig')
-                    .onSnapshot((doc) => { if (doc.exists) { setSheetUrl(doc.data().url || ''); } });
+                if (!currentUser || !fb) return;
+                const { db, collection, onSnapshot, doc } = fb;
+                
+                // Using hardcoded APP_ID for clean path
+                const expensesRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses');
+                const settingsDoc = doc(db, 'artifacts', APP_ID, 'public', 'data', 'appSettings', 'gasConfig');
+
+                const unsubExpenses = onSnapshot(expensesRef, (snapshot) => {
+                    let newExpenses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    newExpenses.sort((a, b) => {
+                        return new Date(b.date) - new Date(a.date) || b.createdAt?.localeCompare(a.createdAt);
+                    });
+                    setExpenses(newExpenses);
+                }, (err) => {
+                    console.error("Firestore Error:", err);
+                    showToast("資料庫連線失敗，請檢查 Firestore Rules", "error");
+                });
+
+                const unsubSettings = onSnapshot(settingsDoc, (doc) => {
+                    if (doc.exists()) { setSheetUrl(doc.data().url || ''); }
+                });
+
                 return () => { unsubExpenses(); unsubSettings(); };
-            }, [currentUser]);
+            }, [currentUser, fb]);
 
             useEffect(() => {
                 const fetchRate = async () => {
@@ -205,18 +282,15 @@
             }, []);
 
             useEffect(() => {
-                if (activeTab === 'add') {
-                    if (formData.splitMode === 'fund_topup') {
-                        setFormData(prev => ({ ...prev, title: '上繳公費' }));
-                    } else if (formData.title === '上繳公費') {
-                        setFormData(prev => ({ ...prev, title: '' }));
-                    }
+                if (activeTab === 'add' && !editingExpenseId && !editingGroupIds) {
+                    setMemoizedTitle('');
+                } else if (activeTab === 'add' && (editingExpenseId || editingGroupIds)) {
+                    setMemoizedTitle(formData.title);
                 }
-            }, [formData.splitMode, activeTab]);
+            }, [activeTab, editingExpenseId, editingGroupIds]);
 
             const stats = useMemo(() => {
                 const bal = {}; const share = {};
-                // 分別追蹤公費的日幣與台幣餘額，避免換算誤差
                 const pfJpy = { val: 0 }; 
                 const pfTwd = { val: 0 };
 
@@ -226,7 +300,6 @@
                 expenses.forEach(exp => {
                     const paidBy = exp.payer; 
                     const amountTwd = parseFloat(exp.amountTwd || 0);
-                    // 原始輸入金額 (可能是日幣或台幣)
                     const inputAmt = parseFloat(exp.inputAmount || 0); 
                     const isJpy = exp.currency === 'JPY';
 
@@ -234,7 +307,6 @@
                     
                     if (exp.splitMode === 'fund_topup') {
                         bal[PUBLIC_FUND_ID] -= amountTwd;
-                        // 公費進帳：累積到公費池
                         if (isJpy) pfJpy.val += inputAmt; else pfTwd.val += inputAmt;
                     } else if (exp.splitMode === 'personal') {
                         if (share[paidBy] !== undefined) { share[paidBy] += amountTwd; bal[paidBy] -= amountTwd; }
@@ -244,6 +316,7 @@
                             if (share[uid] !== undefined) { share[uid] += s; bal[uid] -= s; }
                         });
                     } else {
+                        // Equal split
                         const count = exp.involved.length; 
                         const split = amountTwd / count;
                         exp.involved.forEach(uid => { 
@@ -251,7 +324,6 @@
                         });
                     }
 
-                    // 如果是公費支出
                     if (paidBy === PUBLIC_FUND_ID) {
                         if (isJpy) pfJpy.val -= inputAmt; else pfTwd.val -= inputAmt;
                     }
@@ -266,19 +338,58 @@
                 };
             }, [users, expenses]);
 
+            const createGroupedList = (expenseList, ignorePayer = false) => {
+                const grouped = [];
+                const map = new Map();
+                
+                expenseList.forEach(item => {
+                    const key = `${item.date}-${item.title}-${item.inputAmount}-${item.currency}-${item.splitMode}-${ignorePayer ? 'merged' : item.payer}`;
+                    if (!map.has(key)) {
+                        map.set(key, { ...item, items: [], totalGroupAmount: 0, totalInputAmount: 0, isGroup: false });
+                    }
+                    const group = map.get(key);
+                    group.items.push(item);
+                    group.totalGroupAmount += parseFloat(item.amountTwd);
+                    group.totalInputAmount += parseFloat(item.inputAmount || 0);
+                });
+                
+                map.forEach(group => {
+                    if (group.items.length > 1) {
+                        group.isGroup = true;
+                    }
+                    grouped.push(group);
+                });
+                
+                return grouped.sort((a, b) => new Date(b.date) - new Date(a.date));
+            };
+
+            const groupedExpenses = useMemo(() => createGroupedList(expenses, true), [expenses]);
+            const publicFundExpenses = useMemo(() => createGroupedList(expenses.filter(e => e.payer === PUBLIC_FUND_ID || e.splitMode === 'fund_topup'), true), [expenses]);
+            
+            const myExpenses = useMemo(() => {
+                if (!viewingUserId) return [];
+                const rawMyExpenses = expenses.filter(e => e.payer === viewingUserId || e.involved.includes(viewingUserId));
+                return createGroupedList(rawMyExpenses, false);
+            }, [expenses, viewingUserId]);
+
             const debts = useMemo(() => {
                 let debtors = []; let creditors = [];
                 const pfBalance = stats.balances[PUBLIC_FUND_ID] || 0;
                 const splitPf = pfBalance / users.length; 
-                const adjustedBalances = { ...stats.balances };
-                delete adjustedBalances[PUBLIC_FUND_ID]; 
-                users.forEach(u => { adjustedBalances[u.id] += splitPf; });
-                Object.entries(adjustedBalances).forEach(([id, amt]) => {
+                
+                const adjusted = { ...stats.balances };
+                delete adjusted[PUBLIC_FUND_ID]; 
+                
+                users.forEach(u => { adjusted[u.id] += splitPf; });
+                
+                Object.entries(adjusted).forEach(([id, amt]) => {
                     const r = Math.round(amt);
                     if (r < -1) debtors.push({ id, amount: r });
                     if (r > 1) creditors.push({ id, amount: r });
                 });
+                
                 debtors.sort((a,b) => a.amount - b.amount); creditors.sort((a,b) => b.amount - a.amount);
+                
                 const txs = []; let i=0; let j=0;
                 while(i < debtors.length && j < creditors.length) {
                     const d = debtors[i]; const c = creditors[j];
@@ -290,143 +401,261 @@
                 return txs;
             }, [stats.balances, users]);
 
-            const myExpenses = useMemo(() => {
-                if (!viewingUserId) return [];
-                return expenses.filter(e => e.payer === viewingUserId || e.involved.includes(viewingUserId));
-            }, [expenses, viewingUserId]);
-
-            const publicFundExpenses = useMemo(() => {
-                return expenses.filter(e => e.payer === PUBLIC_FUND_ID || e.splitMode === 'fund_topup');
-            }, [expenses]);
-
             const togglePayer = (uid) => {
                 const currentPayers = formData.payers || [];
                 if (uid === PUBLIC_FUND_ID) {
-                    setFormData(prev => ({...prev, payers: [PUBLIC_FUND_ID], splitMode: 'equal', title: ''})); 
+                    setFormData(prev => ({
+                        ...prev, 
+                        payers: [PUBLIC_FUND_ID], 
+                        splitMode: 'equal', 
+                        involved: INITIAL_USERS.map(u => u.id), // Reset involved to everyone
+                        title: ''
+                    })); 
                     return;
                 }
-                let newPayers = currentPayers.includes(PUBLIC_FUND_ID) ? [] : [...currentPayers];
+                let newPayers = formData.payers.includes(PUBLIC_FUND_ID) ? [] : [...formData.payers];
                 if (newPayers.includes(uid)) {
                     if (newPayers.length > 1) newPayers = newPayers.filter(id => id !== uid);
                 } else {
                     newPayers.push(uid);
                 }
-                setFormData(prev => ({...prev, payers: newPayers}));
+                
+                let newSplitMode = formData.splitMode;
+                let newTitle = formData.title;
+                if (newPayers.length > 1) {
+                    newSplitMode = 'fund_topup';
+                    if (!newTitle) newTitle = '上繳公費';
+                }
+
+                setFormData(prev => ({...prev, payers: newPayers, splitMode: newSplitMode, title: newTitle}));
+            };
+
+            const toggleInvolved = (uid) => {
+                if (formData.payers.includes(PUBLIC_FUND_ID)) return;
+                
+                const cur = formData.involved;
+                setFormData({...formData, involved: cur.includes(uid) ? (cur.length>1?cur.filter(id=>id!==uid):cur) : [...cur, uid]}); 
             };
 
             const saveExpense = async () => {
-                if (!formData.title || !formData.inputAmount || formData.payers.length === 0) { showToast('請完整填寫項目與金額'); return; }
+                if (!fb || isSaving) return; 
+
+                if (!formData.title.trim()) {
+                    showToast('請輸入項目名稱！', 'error');
+                    return;
+                }
+
+                if (!formData.inputAmount || parseFloat(formData.inputAmount) <= 0) {
+                     showToast('請輸入有效金額！', 'error');
+                     return;
+                }
+                
+                if (formData.payers.length === 0) return;
+
+                setIsSaving(true); 
+
+                const { collection, doc, writeBatch, db } = fb;
+                const batch = writeBatch(db);
+
                 const inputVal = parseFloat(formData.inputAmount);
                 const finalTwd = formData.currency === 'JPY' ? Math.round(inputVal * exchangeRate) : inputVal;
-                const batch = db.batch();
-                const payers = formData.payers;
-                const isMulti = payers.length > 1;
-                let amountPerRecord = finalTwd;
-                if (isMulti && formData.amountType === 'total') amountPerRecord = Math.round(finalTwd / payers.length);
 
-                payers.forEach(payerId => {
-                    const newDocRef = db.collection('expenses').doc(); 
-                    let docRef = editingExpenseId ? db.collection('expenses').doc(editingExpenseId) : newDocRef;
+                let amountPerRecord = finalTwd;
+                let inputPerRecord = inputVal;
+                
+                if (editingGroupIds) {
+                    editingGroupIds.forEach(id => batch.delete(doc(db, 'artifacts', APP_ID, 'public', 'data', 'expenses', id)));
+                }
+
+                formData.payers.forEach(payerId => {
+                    const newDocRef = doc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses')); 
+                    let docRef = (editingExpenseId && !editingGroupIds) ? doc(db, 'artifacts', APP_ID, 'public', 'data', 'expenses', editingExpenseId) : newDocRef;
+                    
                     let payload = { 
                         title: formData.title, currency: formData.currency, payer: payerId, 
                         involved: formData.involved, splitMode: formData.splitMode, customDetails: formData.customDetails,
-                        date: formData.date, note: formData.note || '', inputAmount: inputVal, amountTwd: amountPerRecord,
+                        date: formData.date, note: formData.note || '', 
+                        inputAmount: inputPerRecord, 
+                        amountTwd: amountPerRecord,
                         updatedAt: new Date().toISOString()
                     };
-                    if (!editingExpenseId) payload.createdAt = new Date().toISOString();
-                    if (editingExpenseId) { batch.update(docRef, payload); } else { batch.set(docRef, payload); }
+                    if (!editingExpenseId && !editingGroupIds) payload.createdAt = new Date().toISOString();
+                    
+                    batch.set(docRef, payload);
                 });
 
                 try {
                     await batch.commit();
-                    setFormData({ title: '', inputAmount: '', currency: 'TWD', payers: [viewingUserId || INITIAL_USERS[0].id], involved: users.map(u=>u.id), splitMode: 'equal', customDetails: {}, date: new Date().toISOString().split('T')[0], amountType: 'total' });
-                    setEditingExpenseId(null); setActiveTab('dashboard');
+                    setFormData({ title: '', inputAmount: '', currency: 'TWD', payers: [viewingUserId || INITIAL_USERS[0].id], involved: users.map(u=>u.id), splitMode: 'equal', customDetails: {}, date: new Date().toISOString().split('T')[0], amountType: 'per_person' });
+                    setEditingExpenseId(null); setEditingGroupIds(null); setActiveTab('dashboard');
                     showToast('已記下！', 'success');
-                } catch (e) { showToast("儲存失敗"); }
+                } catch (e) { 
+                    console.error(e);
+                    showToast("儲存失敗", "error"); 
+                } finally {
+                    setIsSaving(false); 
+                }
             };
 
-            const syncToSheet = async () => {
-                if(!sheetUrl) { showToast('請先貼上 GAS 網址'); setActiveTab('settings'); return; }
+            const handleExecuteDelete = async () => {
+                if (!confirmDelete.expense || !fb) return;
+                const { doc, writeBatch, db } = fb;
+                try {
+                    const batch = writeBatch(db);
+                    if (confirmDelete.expense.isGroup) {
+                        confirmDelete.expense.items.forEach(item => batch.delete(doc(db, 'artifacts', APP_ID, 'public', 'data', 'expenses', item.id)));
+                    } else {
+                        batch.delete(doc(db, 'artifacts', APP_ID, 'public', 'data', 'expenses', confirmDelete.expense.id));
+                    }
+                    await batch.commit();
+                    showToast('已刪除', 'success');
+                } catch(err) { showToast('刪除失敗'); } finally { setConfirmDelete({ show: false, expense: null }); }
+            };
+
+            const updateGasUrl = async (val) => {
+                if (!fb) return;
+                setSheetUrl(val);
+                const { doc, setDoc, db } = fb;
+                try { await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'appSettings', 'gasConfig'), { url: val }); } catch (e) {}
+            };
+
+             const syncToSheet = async () => {
+                if(!sheetUrl) { setActiveTab('settings'); return; }
                 setIsSyncing(true); setSyncStatus(null);
                 const payload = {
-                    expenses: expenses.map(e => ({ ...e, displayAmount: e.currency==='JPY'?`¥${e.inputAmount} (約$${e.amountTwd})`:`$${e.amountTwd}`, payerName: e.payer === PUBLIC_FUND_ID ? '公費' : users.find(u=>u.id===e.payer)?.name, involvedNames: e.splitMode==='fund_topup' ? '上繳公費' : e.involved.map(id=>users.find(u=>u.id===id)?.name).join(', ') })),
+                    expenses: expenses.map(e => ({ ...e, displayAmount: e.currency==='JPY'?`¥${e.inputAmount} (約$${e.amountTwd})`:`$${e.amountTwd}`, payerName: e.payer === PUBLIC_FUND_ID ? '公費' : users.find(u=>u.id===e.payer)?.name, involvedNames: e.splitMode==='fund_topup' ? '上繳公費' : e.splitMode==='custom' ? Object.entries(e.customDetails).map(([id,v])=>`${users.find(u=>u.id===id)?.name}($${v})`).join(', ') : e.splitMode==='personal' ? '自己花' : e.involved.map(id=>users.find(u=>u.id===id)?.name).join(', ') })),
                     debts, summary: users.map(u => ({ name: u.name, share: stats.totalShare[u.id]?.toFixed(0)||0 }))
                 };
                 try { await fetch(sheetUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) }); setTimeout(() => { setIsSyncing(false); setSyncStatus('success'); showToast('同步成功', 'success'); }, 1000); } catch (e) { setIsSyncing(false); setSyncStatus('error'); showToast('同步失敗'); }
             };
 
-            const handleExecuteDelete = async () => {
-                if (!confirmDelete.expense) return;
-                try {
-                    await db.collection('expenses').doc(confirmDelete.expense.id).delete();
-                    showToast('已刪除', 'success');
-                } catch(err) { showToast('刪除失敗'); } finally { setConfirmDelete({ show: false, expense: null }); }
-            };
+            const handleCustomAmountChange = (uid, val) => setFormData(p => ({...p, customDetails: {...p.customDetails, [uid]: val}}));
 
             const renderExpenseCard = (expense, isPersonal = false, isFundView = false, allowActions = true) => {
-                let isTopup = expense.splitMode === 'fund_topup';
-                let isFundPay = expense.payer === PUBLIC_FUND_ID;
-                let payerName = isFundPay ? '公費' : users.find(u=>u.id===expense.payer)?.name;
+                let payerName = expense.payer === PUBLIC_FUND_ID ? '公費' : users.find(u=>u.id===expense.payer)?.name;
                 
-                let myShare = 0;
-                if (expense.splitMode === 'personal') {
-                    myShare = (expense.payer === viewingUserId) ? expense.amountTwd : 0;
-                } else if (expense.splitMode === 'custom') {
-                    myShare = parseFloat(expense.customDetails[viewingUserId] || 0);
-                } else if (expense.splitMode === 'fund_topup') {
-                    myShare = 0; 
-                } else if (expense.involved.includes(viewingUserId)) {
-                    myShare = Math.round(expense.amountTwd / expense.involved.length);
-                }
+                const calculateMyShare = (item) => {
+                    if (item.splitMode === 'personal') {
+                        return (item.payer === viewingUserId) ? item.amountTwd : 0;
+                    } else if (item.splitMode === 'custom') {
+                        return parseFloat(item.customDetails[viewingUserId] || 0);
+                    } else if (item.splitMode === 'fund_topup') {
+                        return 0; 
+                    } else if (item.involved.includes(viewingUserId)) {
+                        return Math.round(item.amountTwd / item.involved.length);
+                    }
+                    return 0;
+                };
 
+                let myShare = calculateMyShare(expense);
                 let amountToShow = isPersonal ? myShare : expense.amountTwd;
-                let isPurePrepay = isPersonal && (expense.payer === viewingUserId) && (isTopup || myShare === 0);
+                
+                let isPurePrepay = isPersonal && (expense.payer === viewingUserId) && (expense.splitMode === 'fund_topup' || myShare === 0);
+                
                 if (isPurePrepay) amountToShow = expense.amountTwd;
                 if (isPersonal && !isPurePrepay && myShare === 0 && expense.payer !== viewingUserId) return null; 
 
-                const getTagStyle = () => {
-                    if (isTopup) return 'bg-purple-100 text-purple-700'; 
-                    if (isFundPay) return 'bg-orange-100 text-orange-700';
-                    if (expense.splitMode === 'personal') return 'bg-yellow-100 text-yellow-700';
-                    return 'bg-red-100 text-red-700';
+                const getTagStyle = (mode, payer) => {
+                    if (mode === 'fund_topup') return 'bg-purple-100 text-purple-700'; 
+                    if (payer === PUBLIC_FUND_ID) return 'bg-orange-100 text-orange-700';
+                    if (mode === 'personal') return 'bg-yellow-100 text-yellow-700'; 
+                    return 'bg-red-100 text-red-700'; 
                 };
 
-                const getTagText = () => {
-                    if (isTopup) return '上繳';
-                    if (isFundPay) return '公費付';
-                    if (expense.splitMode === 'personal') return '自己付';
+                const getTagText = (mode, payerName) => {
+                    if (mode === 'fund_topup') return '上繳';
+                    if (payerName === '公費') return '公費付';
+                    if (mode === 'personal') return '自己花';
                     return `${payerName}先付`;
                 };
                 
-                const isFundDetailView = isFundView;
+                let displayTotal = expense.totalGroupAmount;
+                if (isPersonal && expense.isGroup) {
+                     displayTotal = expense.items.reduce((sum, item) => sum + calculateMyShare(item), 0);
+                } else if (isPersonal && !expense.isGroup) {
+                     displayTotal = isPurePrepay ? expense.amountTwd : myShare;
+                }
+                
+                let displayInputTotal = null;
+                if (!isPersonal) {
+                     displayInputTotal = expense.isGroup ? expense.totalInputAmount : expense.inputAmount;
+                }
 
                 const ActionButtons = () => {
                     if (!allowActions) return null;
                     return (
                         <div className="flex gap-2 relative z-10 opacity-60 hover:opacity-100 transition-opacity">
-                            <button 
-                                onClick={(e) => { 
-                                    e.preventDefault(); e.stopPropagation(); 
-                                    setFormData({...expense, payers: [expense.payer]}); 
-                                    setEditingExpenseId(expense.id); 
-                                    setActiveTab('add'); 
-                                }} 
-                                className="p-1.5 text-slate-400 hover:text-cyan-600"
-                            >
-                                <Edit2 size={14}/>
-                            </button>
-                            <button 
-                                onClick={(e) => { 
-                                    e.preventDefault(); e.stopPropagation(); 
-                                    setConfirmDelete({ show: true, expense: expense });
-                                }} 
-                                className="p-1.5 text-slate-400 hover:text-red-500"
-                            >
-                                <Trash2 size={14}/>
-                            </button>
+                            <button onClick={(e) => { 
+                                e.preventDefault(); e.stopPropagation();
+                                if (expense.isGroup) {
+                                    const groupPayers = expense.items.map(i => i.payer);
+                                    setFormData({ ...expense, payers: [...new Set(groupPayers)], inputAmount: expense.items[0].inputAmount, currency: expense.items[0].currency });
+                                    setEditingGroupIds(expense.items.map(i => i.id)); setEditingExpenseId(null);
+                                } else {
+                                    setFormData({...expense, payers: [expense.payer]}); setEditingExpenseId(expense.id); setEditingGroupIds(null);
+                                }
+                                setActiveTab('add'); 
+                            }} className="p-1.5 text-slate-400 hover:text-cyan-600"><Edit2 size={14}/></button>
+                            <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDelete({ show: true, expense: expense }); }} className="p-1.5 text-slate-400 hover:text-red-500"><Trash2 size={14}/></button>
                         </div>
                     );
                 };
+
+                if (expense.isGroup) {
+                    return (
+                        <div key={expense.id || expense.date + expense.title} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 relative mb-2 animate-fade-in">
+                            <div className="flex justify-between items-start mb-2">
+                                <div className="flex-1 pr-12">
+                                    <h4 className="font-bold text-slate-800 text-lg">{expense.title}</h4>
+                                    <p className="text-xs text-slate-400">{new Date(expense.date).toLocaleDateString()}</p>
+                                </div>
+                                <div className="text-right">
+                                    <div className="font-bold text-slate-900 text-lg">{getDisplayAmount(displayTotal, displayInputTotal, expense.items[0].currency)}</div>
+                                    <div className="flex justify-end mt-1"><ActionButtons /></div>
+                                </div>
+                            </div>
+                            <div className="mt-3 space-y-2 border-t border-slate-50 pt-2">
+                                {expense.items.map((item) => {
+                                    const itemPayer = item.payer === PUBLIC_FUND_ID ? '公費' : users.find(u=>u.id===item.payer)?.name;
+                                    const isFundTopUp = item.splitMode === 'fund_topup';
+                                    
+                                    let itemAmount = item.amountTwd;
+                                    let itemIsPurePrepay = false;
+                                    if (isPersonal) {
+                                        let s = calculateMyShare(item);
+                                        itemIsPurePrepay = (item.payer === viewingUserId) && (isFundTopUp || s === 0);
+                                        itemAmount = itemIsPurePrepay ? item.amountTwd : s;
+                                    } else {
+                                        itemIsPurePrepay = (item.splitMode === 'personal' && !item.involved.includes(item.payer)) || isFundTopUp;
+                                    }
+
+                                    const showGray = isFundTopUp || itemIsPurePrepay;
+                                    const itemDisplayAmount = getDisplayAmount(itemAmount, item.inputAmount, item.currency);
+                                    
+                                    let listTagStyle = getTagStyle(item.splitMode, item.payer);
+                                    let listTagText = getTagText(item.splitMode, itemPayer);
+
+                                    return (
+                                        <div key={item.id} className="flex justify-between items-center text-sm">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${listTagStyle}`}>{listTagText}</span>
+                                                <span className="text-slate-600">{itemPayer}</span>
+                                            </div>
+                                            <span className={`font-mono ${showGray ? 'text-gray-400' : 'text-slate-700'}`}>{showGray ? `(${itemDisplayAmount})` : itemDisplayAmount}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                }
+
+                let finalDisplayStr = "";
+                if (isPersonal && !isPurePrepay && expense.splitMode !== 'personal') {
+                     finalDisplayStr = formatMoney(amountToShow);
+                } else {
+                     finalDisplayStr = getDisplayAmount(amountToShow, expense.inputAmount, expense.currency);
+                }
 
                 return (
                     <div key={expense.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 relative mb-2 animate-fade-in">
@@ -434,35 +663,22 @@
                             <div className="flex-1 pr-12">
                                 <div className="flex items-center gap-2 flex-wrap mb-1">
                                     <h4 className="font-bold text-slate-800">{expense.title}</h4>
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${getTagStyle()}`}>
-                                        {getTagText()}
-                                    </span>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${getTagStyle(expense.splitMode, expense.payer)}`}>{getTagText(expense.splitMode, payerName)}</span>
                                 </div>
                                 <p className="text-xs text-slate-400">{new Date(expense.date).toLocaleDateString()}</p>
                             </div>
                             <div className="text-right">
-                                <div className="font-bold flex flex-col items-end gap-0.5 text-slate-900">
-                                    <div className="flex items-center gap-1">
-                                        {isPurePrepay && '('}
-                                        {isFundView && isTopup && '+'}
-                                        {isFundView && isFundPay && '-'}
-                                        {formatMoney(amountToShow)}
-                                        {isPurePrepay && ')'}
-                                    </div>
-                                    {isPurePrepay && <p className="text-[10px] text-slate-400 font-medium">不計入消費</p>}
+                                <div className={`font-bold flex flex-col items-end gap-0.5 ${isPurePrepay ? 'text-gray-400' : 'text-slate-900'}`}>
+                                    <div className="flex items-center gap-1">{isPurePrepay && '('}{finalDisplayStr}{isPurePrepay && ')'}</div>
+                                    {isPurePrepay && <p className="text-[10px] text-gray-400 font-medium">不計入消費</p>}
                                 </div>
                             </div>
                         </div>
                         <div className="flex justify-between items-end">
                             <div className="text-xs text-slate-500 mt-1 flex-1 mr-4">
-                                {isTopup ? `${payerName} 儲值進公費` : expense.splitMode === 'personal' ? `${payerName} 自己花` : `由 ${expense.involved.map(id=>users.find(u=>u.id===id)?.name).join('、')} 平分`}
+                                {expense.splitMode === 'fund_topup' ? `${payerName} 儲值進公費` : expense.splitMode === 'personal' ? `${payerName} 自己花` : `由 ${expense.involved.map(id=>users.find(u=>u.id===id)?.name).join('、')} 平分`}
                             </div>
-                            {allowActions && (
-                                <div className="flex gap-2 opacity-60 hover:opacity-100">
-                                    <button onClick={(e) => { e.stopPropagation(); setFormData({...expense, payers: [expense.payer]}); setEditingExpenseId(expense.id); setActiveTab('add'); }} className="p-1.5 text-slate-400 hover:text-cyan-600"><Edit2 size={14}/></button>
-                                    <button onClick={(e) => { e.stopPropagation(); setConfirmDelete({ show: true, expense }); }} className="p-1.5 text-slate-400 hover:text-red-500"><Trash2 size={14}/></button>
-                                </div>
-                            )}
+                            <ActionButtons />
                         </div>
                         {expense.note && <div className="mt-2 text-xs text-slate-400 bg-slate-50 p-2 rounded">📝 {expense.note}</div>}
                     </div>
@@ -470,23 +686,15 @@
             };
 
             const TabButton = ({ id, label, icon: Icon }) => (
-                <button 
-                    onClick={() => setActiveTab(id)} 
-                    className={`flex flex-col items-center justify-center py-3 px-1 flex-1 transition-colors ${activeTab === id ? 'text-cyan-600 border-t-2 border-cyan-600 bg-cyan-50' : 'text-slate-400 hover:text-cyan-500'}`}
-                >
+                <button onClick={() => setActiveTab(id)} className={`flex flex-col items-center justify-center py-3 px-1 flex-1 transition-colors ${activeTab === id ? 'text-cyan-600 border-t-2 border-cyan-600 bg-cyan-50' : 'text-slate-400 hover:text-cyan-500'}`}>
                     <Icon size={20} className="mb-1" /><span className="text-xs font-medium">{label}</span>
                 </button>
             );
 
             return (
                 <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col pb-[calc(env(safe-area-inset-bottom)+80px)]">
-                    {toast.show && (
-                        <div className={`fixed top-4 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full shadow-2xl z-[300] text-white font-bold text-sm animate-slide-down flex items-center gap-2 ${toast.type === 'error' ? 'bg-red-500' : 'bg-slate-800'}`}>
-                            {toast.type === 'error' && <Icons.Alert size={16} />}
-                            {toast.msg}
-                        </div>
-                    )}
-
+                    {toast.show && <div className={`fixed top-4 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full shadow-2xl z-[300] text-white font-bold text-sm animate-slide-down flex items-center gap-2 ${toast.type === 'error' ? 'bg-red-500' : 'bg-slate-800'}`}>{toast.type === 'error' && <Alert size={16} />}{toast.msg}</div>}
+                    
                     {confirmDelete.show && (
                         <div className="fixed inset-0 z-[500] flex items-center justify-center p-6 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
                             <div className="bg-white w-full max-w-xs rounded-2xl p-6 shadow-2xl">
@@ -512,16 +720,13 @@
                     <main className="max-w-md mx-auto p-4 space-y-5 flex-1 w-full">
                         {activeTab === 'dashboard' && (
                             <div className="space-y-4 animate-fade-in">
-                                {/* 公費餘額 - 小灰色標題 + 藍色背景 (bg-cyan-50) + 修正的匯率顯示邏輯 */}
                                 <div className="bg-white rounded-2xl shadow-sm border border-cyan-200 overflow-hidden animate-fade-in">
                                     <button onClick={() => setIsFundDetailsOpen(!isFundDetailsOpen)} className="w-full px-5 py-4 bg-cyan-50 flex justify-between items-center transition-colors border-b border-cyan-50">
                                         <div className="flex flex-col items-start text-left">
                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">公費餘額</p>
                                             <p className="text-xl font-bold font-mono text-cyan-900">{formatPublicFundJPY(stats.publicFundJpy, stats.publicFundTwd)}</p>
                                         </div>
-                                        <div className="text-cyan-600">
-                                            {isFundDetailsOpen ? <ChevronUp size={20}/> : <ChevronDown size={20}/>}
-                                        </div>
+                                        <div className="text-cyan-600">{isFundDetailsOpen ? <ChevronUp size={20}/> : <ChevronDown size={20}/>}</div>
                                     </button>
                                     {isFundDetailsOpen && (
                                         <div className="p-4 space-y-1 bg-white border-t border-cyan-100">
@@ -556,7 +761,7 @@
                                         <div className="flex items-center gap-2 text-slate-700 font-bold"><LayoutDashboard size={16} />總帳本</div>
                                         {isGeneralOpen ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
                                     </button>
-                                    {isGeneralOpen && <div className="p-4 space-y-1 bg-white border-t border-slate-100">{expenses.length === 0 ? <div className="text-center py-4 text-slate-400 text-xs italic">還沒有紀錄 🍃</div> : expenses.map(e => renderExpenseCard(e, false))}</div>}
+                                    {isGeneralOpen && <div className="p-4 space-y-1 bg-white border-t border-slate-100">{groupedExpenses.length === 0 ? <div className="text-center py-4 text-slate-400 text-xs italic">還沒有紀錄 🍃</div> : groupedExpenses.map(e => renderExpenseCard(e, false))}</div>}
                                 </div>
 
                                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -582,9 +787,9 @@
                                 <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">{editingExpenseId ? <Edit2 size={24} className="text-cyan-500" /> : <Plus size={24} className="text-cyan-500" />}{editingExpenseId ? '修改支出' : '新增支出'}</h2>
                                 <div className="space-y-5">
                                     <div><label className="block text-sm font-medium text-slate-500 mb-1">日期</label><input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="input-standard p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" /></div>
-                                    <div><label className="block text-sm font-medium text-slate-500 mb-1">項目</label><input type="text" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="input-standard p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="輸入項目名稱" /></div>
+                                    <div><label className="block text-sm font-medium text-slate-500 mb-1">項目</label><input type="text" value={formData.title} onChange={e => {setFormData({...formData, title: e.target.value}); setMemoizedTitle(e.target.value);}} className="input-standard p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="輸入項目名稱" disabled={formData.splitMode === 'fund_topup'} /></div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-500 mb-1">金額</label>
+                                        <label className="block text-sm font-medium text-slate-500 mb-1">{isMultiPayer ? "每人支付金額" : "金額"}</label>
                                         <div className="flex gap-2">
                                             <div className="relative flex-1">
                                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">{formData.currency === 'JPY' ? '¥' : '$'}</span>
@@ -595,6 +800,7 @@
                                                 <button onClick={() => setFormData({...formData, currency: 'JPY'})} className={`px-3 text-xs font-bold rounded-lg transition-all ${formData.currency === 'JPY' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>JPY</button>
                                             </div>
                                         </div>
+                                        {formData.currency === 'JPY' && formData.inputAmount && <p className="text-xs text-slate-400 mt-1 text-right">≈ TWD ${Math.round(formData.inputAmount * exchangeRate).toLocaleString()}</p>}
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-500 mb-2">誰付錢？</label>
@@ -605,31 +811,37 @@
                                             ))}
                                         </div>
                                     </div>
-                                    <div className="bg-slate-50 p-1 rounded-xl flex">
-                                        <button onClick={() => setFormData({...formData, splitMode: 'equal'})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'equal' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>平分</button>
-                                        {!isMultiPayer && !isFundPayer && <button onClick={() => setFormData({...formData, splitMode: 'personal'})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'personal' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>自己花</button>}
-                                        {!isFundPayer && <button onClick={() => setFormData({...formData, splitMode: 'fund_topup', title: '上繳公費'})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'fund_topup' ? 'bg-amber-100 text-amber-600 shadow' : 'text-slate-400'}`}>上繳</button>}
+                                    <div className="bg-slate-50 p-1 rounded-xl flex items-center justify-center">
+                                        {isMultiPayer ? (
+                                            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-center space-y-1 w-full">
+                                                <p className="text-sm text-yellow-800">將為 <span className="font-bold">{formData.payers.length}</span> 位成員各建立一筆上繳紀錄</p>
+                                                {formData.inputAmount && (
+                                                    <p className="text-lg font-bold text-yellow-900">
+                                                        總共收到: {formData.currency === 'JPY' ? '¥' : '$'}{(parseFloat(formData.inputAmount) * formData.payers.length).toLocaleString()}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <button onClick={() => setFormData({...formData, splitMode: 'equal', title: memoizedTitle})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'equal' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>
+                                                    平分
+                                                </button>
+                                                {/* Custom button removed as requested */}
+                                                {!isFundPayer && <button onClick={() => setFormData({...formData, splitMode: 'personal', title: memoizedTitle})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'personal' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>自己花</button>}
+                                                {!isFundPayer && <button onClick={() => setFormData(prev => ({...prev, splitMode: 'fund_topup', title: '上繳公費'}))} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'fund_topup' ? 'bg-amber-100 text-amber-600 shadow' : 'text-slate-400'}`}>上繳公費</button>}
+                                            </>
+                                        )}
                                     </div>
-                                    {isMultiPayer && (formData.splitMode === 'equal' || formData.splitMode === 'fund_topup') && (
-                                        <div className="flex items-center justify-between bg-slate-100 p-1 rounded-lg">
-                                            <button onClick={() => setFormData(p => ({...p, amountType: 'total'}))} className={`flex-1 py-1 text-xs rounded transition-all ${formData.amountType === 'total' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}>總額 ({formData.inputAmount || 0})</button>
-                                            <button onClick={() => setFormData(p => ({...p, amountType: 'per_person'}))} className={`flex-1 py-1 text-xs rounded transition-all ${formData.amountType === 'per_person' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}>每人 ({formData.inputAmount || 0})</button>
+                                    
+                                    {/* Equal Split Mode (Single Payer) */}
+                                    {formData.splitMode === 'equal' && !isMultiPayer && (
+                                        <div className="flex flex-wrap gap-2">
+                                             {users.map(u => <button key={u.id} onClick={() => toggleInvolved(u.id)} className={`px-3 py-2 rounded-full text-sm border transition-all ${formData.involved.includes(u.id) ? 'border-cyan-400 bg-cyan-50 text-cyan-700' : 'border-slate-200 bg-transparent text-slate-400 font-normal'} ${isFundPayer ? 'opacity-50 cursor-not-allowed' : ''}`}>{u.name}</button>)}
                                         </div>
                                     )}
-                                    {formData.splitMode === 'custom' ? (
-                                        <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                                            <div className="flex justify-between items-center mb-1"><label className="text-sm font-medium text-slate-600">分配 ({formData.currency})</label>{(() => { const target = parseFloat(formData.inputAmount || 0); const sum = Object.values(formData.customDetails).reduce((a,b)=>a+parseFloat(b||0),0); const diff = (target - sum).toFixed(2); return <span className={`text-xs font-bold ${Math.abs(diff) > 0.001 ? 'text-red-500' : 'text-green-600'}`}>剩餘: {diff}</span>; })()}</div>
-                                            {users.map(u => <div key={u.id} className="flex items-center justify-between gap-4"><span className="text-sm text-slate-700 font-normal">{u.name}</span><input type="number" placeholder="0" value={formData.customDetails[u.id] || ''} onChange={(e) => handleCustomAmountChange(u.id, e.target.value)} className="w-24 p-2 text-right rounded-lg border border-slate-200 text-sm outline-none" /></div>)}
-                                        </div>
-                                    ) : formData.splitMode === 'personal' ? (
-                                        <div className="text-center text-sm text-slate-500 py-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">這筆錢將完全歸在付款人身上。</div>
-                                    ) : formData.splitMode === 'fund_topup' ? (
-                                        <div className="text-center text-sm text-slate-500 py-4 bg-amber-50 rounded-xl border border-dashed border-amber-200 text-amber-700">{formData.payers.length > 1 ? `將為 ${formData.payers.length} 位成員各建立一筆上繳紀錄。` : '這筆錢將存入公費，不計入個人消費。'}</div>
-                                    ) : (
-                                        <div className="flex flex-wrap gap-2">{isMultiPayer ? (<div className="text-xs text-slate-500 w-full mb-2 font-bold">已自動對應：{formData.payers.map(pid => users.find(u=>u.id===pid)?.name).join('、')}</div>) : (users.map(u => <button key={u.id} onClick={() => toggleInvolved(u.id)} className={`px-3 py-2 rounded-full text-sm border transition-all ${formData.involved.includes(u.id) ? 'border-cyan-400 bg-cyan-50 text-cyan-700' : 'border-slate-200 bg-transparent text-slate-400 font-normal'}`}>{u.name}</button>))}</div>
-                                    )}
+                                    
                                     <div><label className="block text-sm font-medium text-slate-500 mb-1">備註</label><input type="text" value={formData.note || ''} onChange={e => setFormData({...formData, note: e.target.value})} className="input-standard p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="" /></div>
-                                    <div className="pt-4"><button onClick={saveExpense} className="w-full py-4 bg-cyan-500 text-white rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-all flex justify-center items-center gap-2"><Save size={20} />{editingExpenseId ? '儲存修改' : '記下來'}</button></div>
+                                    <div className="pt-4"><button onClick={saveExpense} disabled={isSaving} className={`w-full py-4 bg-cyan-500 text-white rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-all flex justify-center items-center gap-2 ${isSaving ? 'opacity-70 cursor-wait' : ''}`}><Save size={20} />{editingExpenseId ? '儲存修改' : (isSaving ? '處理中...' : '記下來')}</button></div>
                                 </div>
                             </div>
                         )}
@@ -651,7 +863,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div className="text-center text-[10px] text-slate-300 pb-8 uppercase tracking-widest">v4.0 - Final Peace Edition</div>
+                                <div className="text-center text-[10px] text-slate-300 pb-8 uppercase tracking-widest">v6.4 - Standalone Firebase</div>
                             </div>
                         )}
                     </main>
