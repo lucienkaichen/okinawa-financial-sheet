@@ -306,6 +306,11 @@
                     const amountTwd = parseFloat(exp.amountTwd || 0);
                     const inputAmt = parseFloat(exp.inputAmount || 0); 
                     const isJpy = exp.currency === 'JPY';
+                    
+                    // Ratio to calculate share value in TWD based on total TWD paid for this transaction
+                    const totalTwd = exp.amountTwd || 0;
+                    const totalInput = exp.inputAmount || 0;
+                    const ratio = totalInput > 0 ? totalTwd / totalInput : 0;
 
                     if (bal[paidBy] !== undefined) bal[paidBy] += amountTwd;
                     
@@ -315,9 +320,14 @@
                     } else if (exp.splitMode === 'personal') {
                         if (share[paidBy] !== undefined) { share[paidBy] += amountTwd; bal[paidBy] -= amountTwd; }
                     } else if (exp.splitMode === 'custom' && exp.customDetails) {
+                        // Custom Mode: Iterate stored details and convert to TWD share
                         Object.entries(exp.customDetails).forEach(([uid, val]) => {
-                            const s = parseFloat(val);
-                            if (share[uid] !== undefined) { share[uid] += s; bal[uid] -= s; }
+                            const customVal = parseFloat(val || 0);
+                            const shareInTwd = customVal * ratio; // Convert input currency to TWD based on transaction rate
+                            if (share[uid] !== undefined) { 
+                                share[uid] += shareInTwd; 
+                                bal[uid] -= shareInTwd; 
+                            }
                         });
                     } else {
                         const count = exp.involved.length; 
@@ -379,7 +389,7 @@
             
             const myExpenses = useMemo(() => {
                 if (!viewingUserId) return [];
-                const rawMyExpenses = expenses.filter(e => e.payer === viewingUserId || e.involved.includes(viewingUserId));
+                const rawMyExpenses = expenses.filter(e => e.payer === viewingUserId || e.involved.includes(viewingUserId) || (e.splitMode === 'custom' && e.customDetails && e.customDetails[viewingUserId] > 0));
                 return createGroupedList(rawMyExpenses, false);
             }, [expenses, viewingUserId]);
 
@@ -476,6 +486,13 @@
                 setFormData(prev => ({...prev, splitMode: mode, title: newTitle}));
             };
 
+            const handleCustomAmountChange = (uid, val) => {
+                setFormData(prev => ({
+                    ...prev,
+                    customDetails: { ...prev.customDetails, [uid]: val }
+                }));
+            };
+
             const saveExpense = async () => {
                 if (!fb || isSaving) return; 
 
@@ -489,6 +506,17 @@
                      return;
                 }
                 
+                // Custom Split Validation (防呆)
+                if (formData.splitMode === 'custom') {
+                    const target = parseFloat(formData.inputAmount);
+                    const sum = Object.values(formData.customDetails).reduce((acc, curr) => acc + (parseFloat(curr) || 0), 0);
+                    // Allow small floating point error
+                    if (Math.abs(target - sum) > 0.5) {
+                        showToast(`分配金額不符！剩餘: ${target - sum}`, 'error');
+                        return;
+                    }
+                }
+
                 if (formData.payers.length === 0) return;
 
                 setIsSaving(true); 
@@ -527,7 +555,6 @@
                 }
 
                 // Convert to TWD
-                // Note: We use the calculated Per Record amount for conversion base to keep unit accuracy
                 const finalTwdPerRecord = formData.currency === 'JPY' ? Math.round(finalInputPerRecord * exchangeRate) : finalInputPerRecord;
                 const finalTwdTotal = formData.currency === 'JPY' ? Math.round(finalInputTotal * exchangeRate) : finalInputTotal;
 
@@ -538,10 +565,6 @@
                 }
 
                 if (formData.splitMode === 'separate_pay' || formData.splitMode === 'fund_topup') {
-                    // Multi-Payer: Generate multiple docs
-                    // If Separate Pay: Each doc is a 'personal' expense
-                    // If Topup: Each doc is a 'fund_topup' expense
-                    // In both cases, the inputAmount stored in doc should be the PER PERSON amount.
                     formData.payers.forEach(payerId => {
                         const newDocRef = doc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses')); 
                         let payload = { 
@@ -550,18 +573,15 @@
                             splitMode: formData.splitMode === 'separate_pay' ? 'personal' : 'fund_topup', 
                             customDetails: {},
                             date: formData.date, note: formData.note || '', 
-                            inputAmount: finalInputPerRecord, // Store Per Person
-                            amountTwd: finalTwdPerRecord,     // Store Per Person TWD
+                            inputAmount: finalInputPerRecord, 
+                            amountTwd: finalTwdPerRecord,     
                             updatedAt: new Date().toISOString(),
                             createdAt: new Date().toISOString()
                         };
                         batch.set(newDocRef, payload);
                     });
                 } else {
-                    // Single Payer / Public Fund: Generate single doc
-                    // Logic: The document represents the TOTAL transaction.
-                    // So we store the TOTAL amount.
-                    // This ensures balances are deducted by the total amount paid by the payer.
+                    // Single Payer / Public Fund / Custom Split
                     formData.payers.forEach(payerId => {
                         const newDocRef = doc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses')); 
                         let docRef = (editingExpenseId && !editingGroupIds) ? doc(db, 'artifacts', APP_ID, 'public', 'data', 'expenses', editingExpenseId) : newDocRef;
@@ -626,8 +646,6 @@
                 try { await fetch(sheetUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) }); setTimeout(() => { setIsSyncing(false); setSyncStatus('success'); showToast('同步成功', 'success'); }, 1000); } catch (e) { setIsSyncing(false); setSyncStatus('error'); showToast('同步失敗'); }
             };
 
-            const handleCustomAmountChange = (uid, val) => setFormData(p => ({...p, customDetails: {...p.customDetails, [uid]: val}}));
-
             const renderExpenseCard = (expense, isPersonal = false, isFundView = false, allowActions = true) => {
                 let payerName = expense.payer === PUBLIC_FUND_ID ? '公費' : users.find(u=>u.id===expense.payer)?.name;
                 
@@ -635,7 +653,12 @@
                     if (item.splitMode === 'personal') {
                         return (item.payer === viewingUserId) ? item.amountTwd : 0;
                     } else if (item.splitMode === 'custom') {
-                        return parseFloat(item.customDetails[viewingUserId] || 0);
+                        // Custom Mode Share Calculation in TWD
+                        // Retrieve stored custom amount in input currency
+                        const customInputVal = parseFloat(item.customDetails[viewingUserId] || 0);
+                        // Convert to TWD using ratio
+                        const ratio = (item.amountTwd || 0) / (item.inputAmount || 1);
+                        return customInputVal * ratio;
                     } else if (item.splitMode === 'fund_topup') {
                         return 0; 
                     } else if (item.involved.includes(viewingUserId)) {
@@ -649,7 +672,7 @@
                     if (item.splitMode === 'personal') {
                         return (item.payer === viewingUserId) ? inputAmt : 0;
                     } else if (item.splitMode === 'custom') {
-                        return 0; 
+                         return parseFloat(item.customDetails[viewingUserId] || 0);
                     } else if (item.splitMode === 'fund_topup') {
                         return 0; 
                     } else if (item.involved.includes(viewingUserId)) {
@@ -671,10 +694,10 @@
                 if (isPersonal && !isPurePrepay && myShare === 0 && expense.payer !== viewingUserId) return null; 
 
                 const getTagStyle = (mode, payer) => {
-                    if (mode === 'fund_topup') return 'bg-red-100 text-red-700'; // 上繳公費 (改為紅色)
-                    if (payer === PUBLIC_FUND_ID) return 'bg-blue-100 text-blue-700'; // 公費付 (維持藍色)
-                    if (mode === 'personal') return 'bg-amber-100 text-amber-800'; // 自己付 (改為琥珀色)
-                    return 'bg-orange-100 text-orange-700'; // XXX先付 (維持淺橘色)
+                    if (mode === 'fund_topup') return 'bg-red-100 text-red-700'; 
+                    if (payer === PUBLIC_FUND_ID) return 'bg-blue-100 text-blue-700'; 
+                    if (mode === 'personal') return 'bg-amber-100 text-amber-800'; 
+                    return 'bg-orange-100 text-orange-700'; 
                 };
 
                 const getTagText = (mode, payerName) => {
@@ -841,6 +864,27 @@
                     );
                 };
 
+                // Case 0: Custom Mode (New)
+                if (formData.splitMode === 'custom') {
+                    const target = amt;
+                    const currentSum = Object.values(formData.customDetails).reduce((acc, curr) => acc + (parseFloat(curr) || 0), 0);
+                    const remaining = target - currentSum;
+                    const isBalanced = Math.abs(remaining) <= 0.5;
+
+                    return (
+                        <div className={`border rounded-lg p-3 flex justify-between items-center w-full shadow-sm transition-colors ${isBalanced ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                            <div className="flex flex-col items-start">
+                                <span className={`text-[10px] font-bold uppercase tracking-wide opacity-60 mb-0.5`}>{isBalanced ? '分配完成' : '尚未分配完'}</span>
+                                <span className="text-xl font-bold">{isBalanced ? 'OK' : `${currency}${Math.abs(remaining).toLocaleString()}`}</span>
+                            </div>
+                            <div className="text-right flex flex-col items-end">
+                                <span className="text-[10px] opacity-50 block mb-0.5">目標總額</span>
+                                <span className="text-sm font-medium opacity-80">{currency}{target.toLocaleString()}</span>
+                            </div>
+                        </div>
+                    );
+                }
+
                 // Case 1: Multi-Payer
                 if (isMultiPayer) {
                     const count = formData.payers.length;
@@ -865,14 +909,26 @@
                 if (formData.splitMode === 'equal') {
                     const count = formData.involved.length;
                     if (formData.amountType === 'per_person') {
+                        // Change theme="blue" to theme="default" (gray)
                         return <InfoBox theme="default" mainLabel="每人欠你" mainValue={`${currency}${amt.toLocaleString()}`} subLabel="你先付總額" subValue={`${currency}${(amt*count).toLocaleString()}`} />;
                     } else {
                         return <InfoBox theme="default" mainLabel="你先付總額" mainValue={`${currency}${amt.toLocaleString()}`} subLabel="每人欠你" subValue={`${currency}${(amt/count).toLocaleString(undefined, {maximumFractionDigits: 1})}`} />;
                     }
                 }
 
-                // Default (Personal / Custom)
+                // Default (Personal)
                 return <InfoBox mainLabel="金額" mainValue={`${currency}${amt.toLocaleString()}`} />;
+            };
+
+            // Helper to check if save is allowed (for custom mode mainly)
+            const isSaveDisabled = () => {
+                if (isSaving) return true;
+                if (formData.splitMode === 'custom') {
+                     const target = parseFloat(formData.inputAmount || 0);
+                     const sum = Object.values(formData.customDetails).reduce((acc, curr) => acc + (parseFloat(curr) || 0), 0);
+                     if (Math.abs(target - sum) > 0.5) return true;
+                }
+                return false;
             };
 
             return (
@@ -1028,15 +1084,18 @@
                                                     null
                                                 ) : (
                                                     <div className="w-full">
-                                                        <div className="flex gap-2 mb-2 px-1">
-                                                            <button onClick={() => setFormData({...formData, splitMode: 'equal', title: memoizedTitle})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'equal' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>
+                                                        <div className="grid grid-cols-2 gap-2 mb-2 px-1">
+                                                            <button onClick={() => setFormData({...formData, splitMode: 'equal', title: memoizedTitle})} className={`col-span-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'equal' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>
                                                                 平分
                                                             </button>
-                                                            <button onClick={() => setFormData({...formData, splitMode: 'personal', title: memoizedTitle})} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'personal' ? 'bg-amber-100 text-amber-600 shadow' : 'text-slate-400'}`}>自己付</button>
-                                                            <button onClick={() => setFormData(prev => ({...prev, splitMode: 'fund_topup', title: '上繳公費'}))} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'fund_topup' ? 'bg-red-100 text-red-600 shadow' : 'text-slate-400'}`}>上繳公費</button>
+                                                            <button onClick={() => setFormData({...formData, splitMode: 'custom'})} className={`col-span-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'custom' ? 'bg-white shadow text-cyan-600' : 'text-slate-400'}`}>
+                                                                自訂
+                                                            </button>
+                                                            <button onClick={() => setFormData({...formData, splitMode: 'personal', title: memoizedTitle})} className={`col-span-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'personal' ? 'bg-amber-100 text-amber-600 shadow' : 'text-slate-400'}`}>自己付</button>
+                                                            <button onClick={() => setFormData(prev => ({...prev, splitMode: 'fund_topup', title: '上繳公費'}))} className={`col-span-1 py-2 text-sm font-bold rounded-lg transition-all ${formData.splitMode === 'fund_topup' ? 'bg-red-100 text-red-600 shadow' : 'text-slate-400'}`}>上繳公費</button>
                                                         </div>
                                                         
-                                                        {/* Equal Split Mode (Single Payer) - 1 Row Grid, Removed outer gray box */}
+                                                        {/* Equal Split Mode (Single Payer) - 1 Row Grid */}
                                                         {formData.splitMode === 'equal' && (
                                                             <div className="mt-1 px-1">
                                                                 <div className="grid grid-cols-5 gap-1 w-full">
@@ -1048,6 +1107,26 @@
                                                                 </div>
                                                             </div>
                                                         )}
+
+                                                        {/* Custom Split Mode Inputs */}
+                                                        {formData.splitMode === 'custom' && (
+                                                            <div className="bg-slate-50 border-t border-slate-100 p-3 space-y-2 mt-2 rounded-xl">
+                                                                {users.map(u => (
+                                                                    <div key={u.id} className="flex items-center justify-between">
+                                                                        <span className="text-sm font-medium text-slate-600">{u.name}</span>
+                                                                        <div className="relative w-24">
+                                                                            <input 
+                                                                                type="number" 
+                                                                                placeholder="0" 
+                                                                                value={formData.customDetails[u.id] || ''} 
+                                                                                onChange={(e) => handleCustomAmountChange(u.id, e.target.value)} 
+                                                                                className="w-full p-2 text-right rounded-lg border border-slate-200 text-sm outline-none focus:border-cyan-400 bg-white" 
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
                                             </>
@@ -1055,7 +1134,7 @@
                                     </div>
                                     
                                     <div><label className="block text-sm font-medium text-slate-500 mb-1">備註</label><input type="text" value={formData.note || ''} onChange={e => setFormData({...formData, note: e.target.value})} className="input-standard p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="" /></div>
-                                    <div className="pt-4"><button onClick={saveExpense} disabled={isSaving} className={`w-full py-4 bg-cyan-500 text-white rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-all flex justify-center items-center gap-2 ${isSaving ? 'opacity-70 cursor-wait' : ''}`}><Save size={20} />{editingExpenseId ? '儲存修改' : (isSaving ? '處理中...' : '記下來')}</button></div>
+                                    <div className="pt-4"><button onClick={saveExpense} disabled={isSaveDisabled()} className={`w-full py-4 bg-cyan-500 text-white rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-all flex justify-center items-center gap-2 ${isSaveDisabled() ? 'opacity-50 cursor-not-allowed bg-slate-400 shadow-none' : ''}`}><Save size={20} />{editingExpenseId ? '儲存修改' : (isSaving ? '處理中...' : '記下來')}</button></div>
                                 </div>
                             </div>
                         )}
@@ -1077,7 +1156,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div className="text-center text-[10px] text-slate-300 pb-8 uppercase tracking-widest">v7.6 - Color Swap</div>
+                                <div className="text-center text-[10px] text-slate-300 pb-8 uppercase tracking-widest">v8.0 - Custom Split Mode</div>
                             </div>
                         )}
                     </main>
