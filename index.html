@@ -586,9 +586,16 @@
                         const newDocRef = doc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'expenses')); 
                         let docRef = (editingExpenseId && !editingGroupIds) ? doc(db, 'artifacts', APP_ID, 'public', 'data', 'expenses', editingExpenseId) : newDocRef;
                         
+                        // FIX v8.2: Filter involved for Custom Mode
+                        let finalInvolved = formData.involved;
+                        if (formData.splitMode === 'custom') {
+                            finalInvolved = users.filter(u => parseFloat(formData.customDetails[u.id] || 0) > 0).map(u => u.id);
+                        }
+
                         let payload = { 
                             title: formData.title, currency: formData.currency, payer: payerId, 
-                            involved: formData.involved, splitMode: formData.splitMode, customDetails: formData.customDetails,
+                            involved: finalInvolved, // Use filtered involved
+                            splitMode: formData.splitMode, customDetails: formData.customDetails,
                             date: formData.date, note: formData.note || '', 
                             inputAmount: finalInputTotal, // Store TOTAL
                             amountTwd: finalTwdTotal,     // Store TOTAL TWD
@@ -646,8 +653,6 @@
                 try { await fetch(sheetUrl, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) }); setTimeout(() => { setIsSyncing(false); setSyncStatus('success'); showToast('同步成功', 'success'); }, 1000); } catch (e) { setIsSyncing(false); setSyncStatus('error'); showToast('同步失敗'); }
             };
 
-            const handleCustomAmountChange = (uid, val) => setFormData(p => ({...p, customDetails: {...p.customDetails, [uid]: val}}));
-
             const renderExpenseCard = (expense, isPersonal = false, isFundView = false, allowActions = true) => {
                 let payerName = expense.payer === PUBLIC_FUND_ID ? '公費' : users.find(u=>u.id===expense.payer)?.name;
                 
@@ -655,7 +660,9 @@
                     if (item.splitMode === 'personal') {
                         return (item.payer === viewingUserId) ? item.amountTwd : 0;
                     } else if (item.splitMode === 'custom') {
-                        return parseFloat(item.customDetails[viewingUserId] || 0);
+                        const customInputVal = parseFloat(item.customDetails[viewingUserId] || 0);
+                        const ratio = (item.amountTwd || 0) / (item.inputAmount || 1);
+                        return customInputVal * ratio;
                     } else if (item.splitMode === 'fund_topup') {
                         return 0; 
                     } else if (item.involved.includes(viewingUserId)) {
@@ -752,7 +759,7 @@
                                 details.push(`${u.name} ${currSymbol}${val.toLocaleString()}`);
                             }
                         });
-                        return details.join('、');
+                        return details.join('、'); // Shows clean list: "陳浚愷 ¥200、許瀅珊 ¥300"
                     }
                     return `由 ${expense.involved.map(id=>users.find(u=>u.id===id)?.name).join('、')} 平分`;
                 };
@@ -772,7 +779,10 @@
                             </div>
                             <div className="mt-3 space-y-2 border-t border-slate-50 pt-2">
                                 {expense.items.map((item) => {
-                                    const itemPayer = item.payer === PUBLIC_FUND_ID ? '公費' : users.find(u=>u.id===item.payer)?.name;
+                                    // FIX: Directly find payer from users list based on item.payer ID to avoid duplication issues
+                                    const realPayer = users.find(u=>u.id===item.payer);
+                                    const itemPayerName = item.payer === PUBLIC_FUND_ID ? '公費' : (realPayer ? realPayer.name : 'Unknown');
+                                    
                                     const isFundTopUp = item.splitMode === 'fund_topup';
                                     
                                     let itemAmount = item.amountTwd;
@@ -792,13 +802,13 @@
                                     const itemDisplayAmount = getDisplayAmount(itemAmount, itemInput, item.currency);
                                     
                                     let listTagStyle = getTagStyle(item.splitMode, item.payer);
-                                    let listTagText = getTagText(item.splitMode, itemPayer);
+                                    let listTagText = getTagText(item.splitMode, itemPayerName);
 
                                     return (
                                         <div key={item.id} className="flex justify-between items-center text-sm">
                                             <div className="flex items-center gap-2">
                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${listTagStyle}`}>{listTagText}</span>
-                                                <span className="text-slate-600">{itemPayer}</span>
+                                                <span className="text-slate-600">{itemPayerName}</span>
                                             </div>
                                             <span className={`font-mono ${showGray ? 'text-gray-400' : 'text-slate-700'}`}>{showGray ? `(${itemDisplayAmount})` : itemDisplayAmount}</span>
                                         </div>
@@ -1171,7 +1181,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div className="text-center text-[10px] text-slate-300 pb-8 uppercase tracking-widest">v8.1 - Custom Detail Display</div>
+                                <div className="text-center text-[10px] text-slate-300 pb-8 uppercase tracking-widest">v8.2 - Detail Logic Fix</div>
                             </div>
                         )}
                     </main>
